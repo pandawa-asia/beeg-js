@@ -293,8 +293,11 @@ async function runBot() {
     stateManager,
     storage,
     activeDownloads,
+    pendingLinks,
+    removeMode,
     config,
-    safeEdit: (ctx) => safeEdit(ctx)
+    safeEdit: (ctx) => safeEdit(ctx),
+    queueLinksToDownload
   };
 
   // Commands
