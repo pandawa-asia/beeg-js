@@ -1,48 +1,81 @@
-const winston = require('winston');
+const clack = require('@clack/prompts');
+const fs = require('fs');
 const path = require('path');
 
-/**
- * Logger instance dengan multiple transports (console & file)
- * @type {winston.Logger}
- */
-const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: winston.format.combine(
-    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    winston.format.errors({ stack: true }),
-    winston.format.printf(({ timestamp, level, message, ...meta }) => {
-      let log = `${timestamp} [${level.toUpperCase()}] ${message}`;
-      if (Object.keys(meta).length > 0) {
-        log += ` ${JSON.stringify(meta, null, 2)}`;
-      }
-      return log;
-    })
-  ),
-  transports: [
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.printf(({ level, message, timestamp, ...meta }) => {
-          let log = `${timestamp} ${level} ${message}`;
-          if (Object.keys(meta).length > 0) {
-            log += ` ${JSON.stringify(meta)}`;
-          }
-          return log;
-        })
-      )
-    }),
-    new winston.transports.File({
-      filename: path.join('logs', 'error.log'),
-      level: 'error',
-      maxsize: 5242880,
-      maxFiles: 5
-    }),
-    new winston.transports.File({
-      filename: path.join('logs', 'combined.log'),
-      maxsize: 5242880,
-      maxFiles: 5
-    })
-  ]
-});
+const LOG_DIR = 'logs';
+const LOG_FILE = path.join(LOG_DIR, 'combined.log');
+const ERR_FILE = path.join(LOG_DIR, 'error.log');
+
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+function timestamp() {
+  return new Date().toISOString().replace('T', ' ').slice(0, 19);
+}
+
+function writeFile(file, level, message, meta) {
+  try {
+    const metaStr = meta && Object.keys(meta).length ? ' ' + JSON.stringify(meta) : '';
+    const line = `${timestamp()} [${level}] ${message}${metaStr}\n`;
+    fs.appendFileSync(file, line);
+  } catch {}
+}
+
+function logToFile(level, message, meta) {
+  writeFile(LOG_FILE, level, message, meta);
+  if (level === 'ERROR') {
+    writeFile(ERR_FILE, level, message, meta);
+  }
+}
+
+function metaStr(meta) {
+  if (!meta || Object.keys(meta).length === 0) return '';
+  return ' ' + Object.entries(meta)
+    .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`)
+    .join(' ');
+}
+
+const logger = {
+  info(message, meta = {}) {
+    clack.log.info(message + metaStr(meta));
+    logToFile('INFO', message, meta);
+  },
+
+  success(message, meta = {}) {
+    clack.log.success(message + metaStr(meta));
+    logToFile('INFO', message, meta);
+  },
+
+  warn(message, meta = {}) {
+    clack.log.warn(message + metaStr(meta));
+    logToFile('WARN', message, meta);
+  },
+
+  error(message, meta = {}) {
+    clack.log.error(message + metaStr(meta));
+    logToFile('ERROR', message, meta);
+  },
+
+  step(message, meta = {}) {
+    clack.log.step(message + metaStr(meta));
+    logToFile('INFO', message, meta);
+  },
+
+  debug(message, meta = {}) {
+    if (process.env.LOG_LEVEL === 'debug') {
+      clack.log.info(`[debug] ${message}` + metaStr(meta));
+    }
+    logToFile('DEBUG', message, meta);
+  },
+
+  intro(message) {
+    clack.intro(message);
+  },
+
+  outro(message) {
+    clack.outro(message);
+  }
+};
 
 module.exports = logger;
