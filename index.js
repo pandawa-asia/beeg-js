@@ -73,7 +73,7 @@ function queueLinksToDownload(links, chatId, folder) {
 }
 
 async function workerLoop(workerId) {
-  logger.info(`Worker-${workerId} started`);
+  logger.debug(`Worker-${workerId} started`);
 
   while (true) {
     try {
@@ -127,13 +127,14 @@ async function workerLoop(workerId) {
 
       if (ok) {
         stateManager.updateStats({ success: stateManager.downloadStats.success + 1 });
-        dashboard.finishJob(workerId, { success: true, filename, info: status });
+        const infoClean = status.replace(/^[✅❌⚠️]\s*/, '');
+        dashboard.finishJob(workerId, { success: true, filename, info: infoClean });
         await sendTelegramMessage(
           chatId,
           templates.downloadDone(filename, folder, status),
           messageId
         );
-        logger.info('Download berhasil', { url, filename });
+        logger.debug('Download berhasil', { filename });
       } else {
         stateManager.updateStats({ failed: stateManager.downloadStats.failed + 1 });
         stateManager.removeProcessedLink(url);
@@ -144,7 +145,7 @@ async function workerLoop(workerId) {
           templates.downloadFailed(filename, status),
           messageId
         );
-        logger.warn('Download gagal', { url, status });
+        logger.debug('Download gagal', { filename, status });
       }
 
       stateManager.saveState(storage.getDownloadDir());
@@ -244,8 +245,6 @@ function registerTextHandlers(bot) {
 }
 
 async function runBot() {
-  logger.info('🚀 Bot starting...');
-
   const savedDir = stateManager.loadState();
   const raw = config.DOWNLOAD_DIR_ENV || savedDir || config.DOWNLOAD_DIR_DEFAULT;
   storage.initialize(raw);
@@ -253,9 +252,6 @@ async function runBot() {
 
   stateManager.startAutoSave(5 * 60 * 1000, () => storage.getDownloadDir());
 
-  logger.info('📁 Storage initialized', { directory: storage.getDownloadDir() });
-
-  logger.info(`👷 Starting ${config.MAX_WORKERS} workers...`);
   for (let i = 0; i < config.MAX_WORKERS; i++) {
     workerLoop(i + 1);
   }
@@ -312,20 +308,20 @@ async function runBot() {
 
   const failedCount = stateManager.getFailedDownloads(null).length;
 
-  logger.info('═'.repeat(50));
-  logger.info('✅ BOT RUNNING SUCCESSFULLY!');
-  logger.info('═'.repeat(50));
-  logger.info(`📁 Folder: ${storage.getDownloadDir()}`);
-  logger.info(`👷 Workers: ${config.MAX_WORKERS}`);
-  logger.info(`📦 Max queue: ${config.MAX_QUEUE_SIZE}`);
-  logger.info(`🔐 Auth users: ${config.ALLOWED_USER_IDS.size ? [...config.ALLOWED_USER_IDS].join(', ') : 'SEMUA'}`);
+  const sep = '═'.repeat(48);
+  process.stdout.write(`\n\x1b[32m${sep}\x1b[0m\n`);
+  process.stdout.write(`\x1b[1m\x1b[32m  ✅ BOT AKTIF\x1b[0m\n`);
+  process.stdout.write(`\x1b[32m${sep}\x1b[0m\n`);
+  process.stdout.write(`  \x1b[36m📁\x1b[0m Folder   : \x1b[33m${storage.getDownloadDir()}\x1b[0m\n`);
+  process.stdout.write(`  \x1b[36m👷\x1b[0m Workers  : \x1b[33m${config.MAX_WORKERS}\x1b[0m\n`);
+  process.stdout.write(`  \x1b[36m📦\x1b[0m Max queue: \x1b[33m${config.MAX_QUEUE_SIZE}\x1b[0m\n`);
+  process.stdout.write(`  \x1b[36m🔐\x1b[0m Auth     : \x1b[33m${config.ALLOWED_USER_IDS.size ? [...config.ALLOWED_USER_IDS].join(', ') : 'SEMUA'}\x1b[0m\n`);
   if (failedCount > 0) {
-    logger.warn(`🔴 Ada ${failedCount} download gagal dari sesi sebelumnya`);
+    process.stdout.write(`  \x1b[31m🔴\x1b[0m Sisa gagal: \x1b[31m${failedCount} link\x1b[0m dari sesi sebelumnya\n`);
   }
-  logger.info('═'.repeat(50));
+  process.stdout.write(`\x1b[32m${sep}\x1b[0m\n\n`);
 }
 
-logger.info('🎬 Video Downloader Bot Starting...');
 runBot().catch(error => {
   logger.error('❌ CRITICAL ERROR', { error: error.message, stack: error.stack });
   process.exit(1);

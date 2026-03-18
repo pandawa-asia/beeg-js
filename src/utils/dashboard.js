@@ -8,74 +8,52 @@ const C = {
   green:   '\x1b[32m',
   yellow:  '\x1b[33m',
   red:     '\x1b[31m',
-  blue:    '\x1b[34m',
   magenta: '\x1b[35m',
-  white:   '\x1b[37m',
 };
 
-const WIDTH = 62;
-const BAR_W = 16;
-
-function bar(pct, width = BAR_W) {
-  const pct2 = Math.max(0, Math.min(100, pct || 0));
-  const filled = Math.round((pct2 / 100) * width);
-  return `${C.green}${'█'.repeat(filled)}${C.dim}${'░'.repeat(width - filled)}${C.reset}`;
+function bar(pct, width = 20) {
+  const p = Math.max(0, Math.min(100, pct || 0));
+  const filled = Math.round((p / 100) * width);
+  return C.green + '█'.repeat(filled) + C.dim + '░'.repeat(width - filled) + C.reset;
 }
 
-function pad(str, len, right = false) {
-  const s = String(str);
-  if (s.length >= len) return s.slice(0, len);
-  return right ? s.padStart(len) : s.padEnd(len);
-}
-
-function hr(char = '─', title = '') {
-  if (!title) return C.cyan + char.repeat(WIDTH) + C.reset;
-  const side = Math.floor((WIDTH - title.length - 2) / 2);
-  const left = char.repeat(side);
-  const right = char.repeat(WIDTH - side - title.length - 2);
-  return `${C.cyan}${left}${C.reset} ${C.bold}${title}${C.reset} ${C.cyan}${right}${C.reset}`;
+function truncate(str, max) {
+  return str.length > max ? str.slice(0, max - 1) + '…' : str;
 }
 
 class Dashboard {
-  constructor(intervalMs = 3000) {
-    this._jobs = new Map();
-    this._intervalMs = intervalMs;
-    this._timer = null;
-    this._lastLineCount = 0;
+  constructor(intervalMs = 2500) {
+    this._jobs      = new Map();
+    this._interval  = intervalMs;
+    this._timer     = null;
+    this._prevLines = 0;
   }
 
   startJob(workerId, filename) {
-    this._jobs.set(workerId, {
-      filename,
-      pct: 0,
-      speed: '---',
-      eta: '??',
-      startTime: Date.now()
-    });
+    this._jobs.set(workerId, { filename, pct: 0, speed: '—', eta: '??', start: Date.now() });
     this._ensureTimer();
   }
 
   updateJob(workerId, { pct, speed, eta }) {
-    const job = this._jobs.get(workerId);
-    if (job) {
-      if (pct  !== undefined) job.pct   = pct;
-      if (speed !== undefined) job.speed = speed;
-      if (eta  !== undefined) job.eta   = eta;
-    }
+    const j = this._jobs.get(workerId);
+    if (!j) return;
+    if (pct   !== undefined) j.pct   = pct;
+    if (speed !== undefined) j.speed = speed;
+    if (eta   !== undefined) j.eta   = eta;
   }
 
   finishJob(workerId, { success, filename, info = '' }) {
     this._jobs.delete(workerId);
-    this._clearBlock();
+    this._clearPrev();
+
+    const wTag  = `${C.bold}${C.magenta}W${workerId}${C.reset}`;
+    const name  = `${C.yellow}${truncate(filename, 40)}${C.reset}`;
+    const detail = info ? ` ${C.dim}— ${info}${C.reset}` : '';
 
     if (success) {
-      process.stdout.write(
-        `${C.green}${C.bold}✅ [W${String(workerId).padEnd(2)}]${C.reset} ${C.green}${filename}${C.reset}${info ? ` ${C.dim}${info}${C.reset}` : ''}\n`
-      );
+      process.stdout.write(`${C.green}✅${C.reset} ${wTag}  ${name}${detail}\n`);
     } else {
-      process.stdout.write(
-        `${C.red}${C.bold}❌ [W${String(workerId).padEnd(2)}]${C.reset} ${C.yellow}${filename}${C.reset}${info ? ` ${C.dim}— ${info}${C.reset}` : ''}\n`
-      );
+      process.stdout.write(`${C.red}❌${C.reset} ${wTag}  ${name}${detail}\n`);
     }
 
     if (this._jobs.size === 0) {
@@ -88,62 +66,49 @@ class Dashboard {
   _ensureTimer() {
     if (!this._timer) {
       this._render();
-      this._timer = setInterval(() => this._render(), this._intervalMs);
+      this._timer = setInterval(() => this._render(), this._interval);
       if (this._timer.unref) this._timer.unref();
     }
   }
 
   _stopTimer() {
-    if (this._timer) {
-      clearInterval(this._timer);
-      this._timer = null;
-    }
-    this._lastLineCount = 0;
+    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    this._prevLines = 0;
   }
 
-  _clearBlock() {
-    if (this._lastLineCount > 0) {
-      for (let i = 0; i < this._lastLineCount; i++) {
-        process.stdout.write('\x1b[1A\x1b[2K');
-      }
-      this._lastLineCount = 0;
+  _clearPrev() {
+    for (let i = 0; i < this._prevLines; i++) {
+      process.stdout.write('\x1b[1A\x1b[2K');
     }
+    this._prevLines = 0;
   }
 
   _render() {
     if (this._jobs.size === 0) return;
+    this._clearPrev();
 
-    this._clearBlock();
-
+    const SEP = `${C.cyan}${'─'.repeat(56)}${C.reset}`;
     const lines = [];
-    const now = Date.now();
-    const count = this._jobs.size;
 
-    lines.push(hr('─', `📥 DOWNLOAD AKTIF (${count})`));
+    lines.push(`${SEP}`);
+    lines.push(`${C.cyan}  📥 ${C.bold}DOWNLOAD AKTIF${C.reset}${C.cyan} (${this._jobs.size})${C.reset}`);
 
-    for (const [wid, job] of this._jobs.entries()) {
-      const elapsed = Math.floor((now - job.startTime) / 1000);
-      const name = pad(job.filename, 26);
-      const pctStr = pad(Math.round(job.pct || 0), 3, true) + '%';
-      const b = bar(job.pct);
-      const speed = pad(job.speed || '---', 10);
-      const eta = job.eta || '??';
-      const wStr = pad(`W${wid}`, 4);
+    for (const [wid, j] of this._jobs.entries()) {
+      const name   = truncate(j.filename, 38);
+      const pctNum = Math.round(j.pct || 0);
+      const pctStr = String(pctNum).padStart(3) + '%';
+      const speed  = (j.speed || '—').padEnd(12);
+      const eta    = j.eta || '??';
 
-      lines.push(
-        `${C.cyan}│${C.reset} ${C.bold}${C.magenta}${wStr}${C.reset} ` +
-        `${C.yellow}${name}${C.reset} ` +
-        `${b} ` +
-        `${C.bold}${pctStr}${C.reset} ` +
-        `${C.dim}${speed} ETA:${eta}${C.reset} ` +
-        `${C.cyan}│${C.reset}`
-      );
+      lines.push('');
+      lines.push(`  ${C.bold}${C.magenta}W${wid}${C.reset}  ${C.yellow}${name}${C.reset}`);
+      lines.push(`      ${bar(j.pct)} ${C.bold}${pctStr}${C.reset}  ${C.dim}${speed} ETA: ${eta}${C.reset}`);
     }
 
-    lines.push(hr('─'));
-    const output = lines.join('\n') + '\n';
-    process.stdout.write(output);
-    this._lastLineCount = lines.length;
+    lines.push(`${SEP}`);
+
+    process.stdout.write(lines.join('\n') + '\n');
+    this._prevLines = lines.length;
   }
 }
 

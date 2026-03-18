@@ -34,7 +34,7 @@ class StorageManager {
       const normalized = normalizeDir(dir || config.DOWNLOAD_DIR_DEFAULT);
       fs.mkdirSync(normalized, { recursive: true });
       this.downloadDir = normalized;
-      logger.info('Storage initialized', { directory: normalized });
+      logger.debug('Storage initialized', { directory: normalized });
     } catch (error) {
       throw new StorageError(`Gagal initialize storage: ${error.message}`);
     }
@@ -55,7 +55,7 @@ class StorageManager {
         this.folderHistory.set(key, hist.slice(0, config.MAX_FOLDER_HISTORY));
       }
 
-      logger.info('Download directory berubah', { directory: normalized });
+      logger.debug('Download directory berubah', { directory: normalized });
     } catch (error) {
       throw new StorageError(`Gagal mengubah directory: ${error.message}`);
     }
