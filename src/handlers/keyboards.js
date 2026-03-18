@@ -1,24 +1,26 @@
+'use strict';
+
 const { Markup } = require('telegraf');
 const config = require('../config');
 const { normalizeDir } = require('../utils/helpers');
 
-/**
- * Main menu keyboard
- */
-function getMainInlineKeyboard() {
-  return Markup.inlineKeyboard([
+function getMainInlineKeyboard(failedCount = 0) {
+  const rows = [
     [Markup.button.callback('📊 Statistik', 'stats'),
-      Markup.button.callback('📋 Antrian', 'queue')],
+     Markup.button.callback('📋 Antrian', 'queue')],
     [Markup.button.callback('📁 Ganti Folder', 'change_folder'),
-      Markup.button.callback('🗑️ Kelola Cache', 'cache_menu')],
+     Markup.button.callback('🗑️ Kelola Cache', 'cache_menu')],
     [Markup.button.callback('❓ Bantuan', 'help'),
-      Markup.button.callback('🔄 Refresh', 'refresh_menu')],
-  ]);
+     Markup.button.callback('🔄 Refresh', 'refresh_menu')],
+  ];
+
+  if (failedCount > 0) {
+    rows.push([Markup.button.callback(`🔴 Download Gagal (${failedCount})`, 'failed_menu')]);
+  }
+
+  return Markup.inlineKeyboard(rows);
 }
 
-/**
- * Cache management menu keyboard
- */
 function getCacheMenuKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🗑️ Hapus Semua Cache', 'clear_all_cache')],
@@ -27,20 +29,14 @@ function getCacheMenuKeyboard() {
   ]);
 }
 
-/**
- * Stats page keyboard
- */
 function getStatsKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🔄 Refresh', 'stats'),
-      Markup.button.callback('🗑️ Reset Stats', 'clear_stats')],
+     Markup.button.callback('🗑️ Reset Stats', 'clear_stats')],
     [Markup.button.callback('🔙 Menu Utama', 'menu')],
   ]);
 }
 
-/**
- * Queue page keyboard
- */
 function getQueueKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🔄 Refresh', 'queue')],
@@ -48,18 +44,34 @@ function getQueueKeyboard() {
   ]);
 }
 
-/**
- * Back button keyboard
- */
 function getBackKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🔙 Menu Utama', 'menu')],
   ]);
 }
 
-/**
- * Folder choice keyboard
- */
+function getFailedMenuKeyboard(items) {
+  const rows = [];
+
+  if (items.length > 0) {
+    rows.push([
+      Markup.button.callback('🔁 Retry Semua', 'retry_all_failed'),
+      Markup.button.callback('🗑️ Hapus Semua', 'clear_all_failed'),
+    ]);
+
+    items.slice(0, 8).forEach((item, i) => {
+      const short = (item.filename || item.url).slice(0, 28);
+      rows.push([
+        Markup.button.callback(`🔁 ${short}`, `retry_one_failed|${i}`),
+        Markup.button.callback('✖', `del_one_failed|${i}`),
+      ]);
+    });
+  }
+
+  rows.push([Markup.button.callback('🔙 Menu Utama', 'menu')]);
+  return Markup.inlineKeyboard(rows);
+}
+
 function buildFolderChoiceKeyboard(chatId, currentFolder, folderHistory) {
   const rows = [];
   const shown = new Set();
@@ -86,9 +98,6 @@ function buildFolderChoiceKeyboard(chatId, currentFolder, folderHistory) {
   return Markup.inlineKeyboard(rows);
 }
 
-/**
- * Global folder change keyboard
- */
 function buildGlobalFolderKeyboard(currentFolder) {
   const rows = [];
   const shown = new Set();
@@ -114,6 +123,7 @@ module.exports = {
   getStatsKeyboard,
   getQueueKeyboard,
   getBackKeyboard,
+  getFailedMenuKeyboard,
   buildFolderChoiceKeyboard,
   buildGlobalFolderKeyboard
 };

@@ -2,15 +2,23 @@
 
 const { formatUptime } = require('../utils/helpers');
 
+function shortUrl(url, max = 45) {
+  return url.length > max ? url.slice(0, max) + '…' : url;
+}
+
 const templates = {
-  home: (downloadDir, queueSize) => {
+  home: (downloadDir, queueSize, failedCount = 0) => {
     const folderInfo = downloadDir ? `\`${downloadDir}\`` : '_belum diset_';
+    const failedLine = failedCount > 0
+      ? `🔴 *Gagal:* ${failedCount} link — tekan tombol merah di bawah untuk retry\n`
+      : '';
     return (
       '🎬 *Video Downloader Bot*\n' +
       '━━━━━━━━━━━━━━━━━━━━\n\n' +
       `📁 *Folder aktif:* ${folderInfo}\n` +
-      `📋 *Antrian:* ${queueSize} item\n\n` +
-      'Kirim link video kapan saja,\natau pilih menu di bawah 👇'
+      `📋 *Antrian:* ${queueSize} item\n` +
+      failedLine +
+      '\nKirim link video kapan saja,\natau pilih menu di bawah 👇'
     );
   },
 
@@ -72,6 +80,10 @@ const templates = {
       '• Pilih folder aktif yang sudah ada\n' +
       '• Pilih dari riwayat folder terakhir\n' +
       '• Atau ketik nama folder baru\n\n' +
+      '*🔴 Download Gagal:*\n' +
+      '• Tampil otomatis jika ada yang gagal\n' +
+      '• Bisa retry per-link atau retry semua sekaligus\n' +
+      '• Link yang di-retry dimasukkan ke antrian kembali\n\n' +
       '*🗑️ Kelola Cache:*\n' +
       '• *Hapus Semua* — semua link bisa download ulang\n' +
       '• *Hapus Link Tertentu* — kirim link yang ingin dihapus\n' +
@@ -96,6 +108,40 @@ const templates = {
     );
   },
 
+  failedMenu: (items) => {
+    if (items.length === 0) {
+      return (
+        '✅ *Tidak Ada Download Gagal*\n\n' +
+        'Semua download berhasil!'
+      );
+    }
+
+    let text = (
+      '🔴 *DOWNLOAD GAGAL*\n' +
+      '━━━━━━━━━━━━━━━━━━━━\n\n' +
+      `📦 *Total gagal:* ${items.length}\n\n`
+    );
+
+    items.slice(0, 8).forEach((item, i) => {
+      const name = item.filename || 'unknown';
+      const url  = shortUrl(item.url);
+      const time = item.time ? new Date(item.time).toLocaleString('id-ID', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+      }) : '??';
+      text += `*${i + 1}.* \`${name}\`\n`;
+      text += `   🔗 ${url}\n`;
+      text += `   ⚠️ ${item.reason || 'Error tidak diketahui'}\n`;
+      text += `   🕐 ${time}\n\n`;
+    });
+
+    if (items.length > 8) {
+      text += `_...dan ${items.length - 8} link lainnya_\n\n`;
+    }
+
+    text += 'Pilih aksi atau tekan tombol per-link:';
+    return text;
+  },
+
   downloadStart: (filename, folder, queueSize) => {
     return (
       `⏬ *Memulai download...*\n` +
@@ -118,7 +164,8 @@ const templates = {
     return (
       `❌ *Download Gagal*\n` +
       `📁 \`${filename}\`\n` +
-      `⚠️ ${reason}`
+      `⚠️ ${reason}\n\n` +
+      `_Cek menu 🔴 Gagal untuk retry._`
     );
   },
 

@@ -7,12 +7,14 @@ const config = require('../config');
 const { StorageError } = require('../errors/AppError');
 
 const MAX_PROCESSED_LINKS = 2000;
+const MAX_FAILED_DOWNLOADS = 50;
 
 class StateManager {
   constructor(stateFile = config.STATE_FILE) {
     this.stateFile = stateFile;
     this.processedLinks = new Set();
     this.folderHistory = new Map();
+    this.failedDownloads = [];
     this.downloadStats = {
       success: 0,
       failed: 0,
@@ -52,18 +54,19 @@ class StateManager {
       const data = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'));
 
       const links = data.processed_links || [];
-      const trimmed = links.slice(-MAX_PROCESSED_LINKS);
-      trimmed.forEach(l => this.processedLinks.add(l));
+      links.slice(-MAX_PROCESSED_LINKS).forEach(l => this.processedLinks.add(l));
 
       const hist = data.folder_history || {};
       Object.entries(hist).forEach(([k, v]) => this.folderHistory.set(k, v));
 
       const s = data.stats || {};
       if (s.success !== undefined) this.downloadStats.success = s.success;
-      if (s.failed !== undefined) this.downloadStats.failed = s.failed;
-      if (s.total !== undefined) this.downloadStats.total = s.total;
+      if (s.failed  !== undefined) this.downloadStats.failed  = s.failed;
+      if (s.total   !== undefined) this.downloadStats.total   = s.total;
 
-      logger.info(`State dimuat: ${this.processedLinks.size} link processed`, {
+      this.failedDownloads = (data.failed_downloads || []).slice(-MAX_FAILED_DOWNLOADS);
+
+      logger.info(`State dimuat: ${this.processedLinks.size} link processed, ${this.failedDownloads.length} gagal`, {
         downloadDir: data.download_dir
       });
 
@@ -81,6 +84,7 @@ class StateManager {
         processed_links: [...this.processedLinks],
         download_dir: downloadDir,
         folder_history: Object.fromEntries(this.folderHistory),
+        failed_downloads: this.failedDownloads,
         stats: {
           success: this.downloadStats.success,
           failed: this.downloadStats.failed,
@@ -101,8 +105,7 @@ class StateManager {
   _trimProcessedLinks() {
     if (this.processedLinks.size > MAX_PROCESSED_LINKS) {
       const arr = [...this.processedLinks];
-      const keep = arr.slice(arr.length - MAX_PROCESSED_LINKS);
-      this.processedLinks = new Set(keep);
+      this.processedLinks = new Set(arr.slice(arr.length - MAX_PROCESSED_LINKS));
     }
   }
 
@@ -124,6 +127,41 @@ class StateManager {
 
   removeProcessedLink(url) {
     this.processedLinks.delete(url);
+  }
+
+  addFailedDownload({ url, filename, folder, chatId, reason }) {
+    const existing = this.failedDownloads.findIndex(f => f.url === url && f.chatId === chatId);
+    if (existing !== -1) this.failedDownloads.splice(existing, 1);
+
+    this.failedDownloads.push({
+      url,
+      filename,
+      folder,
+      chatId,
+      reason: reason || 'Unknown error',
+      time: new Date().toISOString()
+    });
+
+    if (this.failedDownloads.length > MAX_FAILED_DOWNLOADS) {
+      this.failedDownloads = this.failedDownloads.slice(-MAX_FAILED_DOWNLOADS);
+    }
+  }
+
+  getFailedDownloads(chatId = null) {
+    if (chatId === null) return [...this.failedDownloads];
+    return this.failedDownloads.filter(f => String(f.chatId) === String(chatId));
+  }
+
+  removeFailedDownload(url, chatId) {
+    this.failedDownloads = this.failedDownloads.filter(
+      f => !(f.url === url && String(f.chatId) === String(chatId))
+    );
+  }
+
+  clearFailedDownloads() {
+    const count = this.failedDownloads.length;
+    this.failedDownloads = [];
+    return count;
   }
 
   updateStats(updates) {

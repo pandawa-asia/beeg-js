@@ -1,37 +1,36 @@
+'use strict';
+
 const logger = require('../utils/logger');
 const templates = require('../messages/templates');
-const { sanitizeFoldername } = require('../utils/validators');
 const {
   getMainInlineKeyboard,
   getCacheMenuKeyboard,
   getStatsKeyboard,
   getQueueKeyboard,
   getBackKeyboard,
+  getFailedMenuKeyboard,
   buildGlobalFolderKeyboard,
   buildFolderChoiceKeyboard
 } = require('./keyboards');
 
-/**
- * Register callback query handlers
- * @param {Telegraf} bot - Bot instance
- * @param {Object} state - Bot state object
- */
 function registerCallbackHandlers(bot, state) {
   const edit = (ctx) => state.safeEdit(ctx);
+
+  const getFailedCount = () => state.stateManager.getFailedDownloads(null).length;
 
   bot.action('menu', async ctx => {
     await ctx.answerCbQuery('');
     await edit(ctx)(
-      templates.home(state.storage.getDownloadDir(), state.downloadQueue.size),
-      getMainInlineKeyboard()
+      templates.home(state.storage.getDownloadDir(), state.downloadQueue.size, getFailedCount()),
+      getMainInlineKeyboard(getFailedCount())
     );
   });
 
   bot.action('refresh_menu', async ctx => {
     await ctx.answerCbQuery('Diperbarui!');
     await edit(ctx)(
-      templates.home(state.storage.getDownloadDir(), state.downloadQueue.size),
-      getMainInlineKeyboard()
+      templates.home(state.storage.getDownloadDir(), state.downloadQueue.size, getFailedCount()),
+      getMainInlineKeyboard(getFailedCount())
     );
   });
 
@@ -110,6 +109,113 @@ function registerCallbackHandlers(bot, state) {
     );
   });
 
+  bot.action('failed_menu', async ctx => {
+    await ctx.answerCbQuery();
+    const items = state.stateManager.getFailedDownloads(null);
+    await edit(ctx)(
+      templates.failedMenu(items),
+      getFailedMenuKeyboard(items)
+    );
+  });
+
+  bot.action('retry_all_failed', async ctx => {
+    const chatId = ctx.chat.id;
+    await ctx.answerCbQuery('Memasukkan ke antrian...');
+
+    const items = state.stateManager.getFailedDownloads(null);
+    if (items.length === 0) {
+      await edit(ctx)('✅ Tidak ada download gagal.', getBackKeyboard());
+      return;
+    }
+
+    let retried = 0;
+    for (const item of items) {
+      state.stateManager.removeProcessedLink(item.url);
+      const targetChatId = item.chatId || chatId;
+      const folder = item.folder || state.storage.getDownloadDir();
+      const ok = state.downloadQueue.put({ url: item.url, name: item.filename, chatId: targetChatId, folder });
+      if (ok) {
+        state.stateManager.addProcessedLink(item.url);
+        retried++;
+      }
+    }
+
+    state.stateManager.clearFailedDownloads();
+    state.stateManager.saveState(state.storage.getDownloadDir());
+
+    await edit(ctx)(
+      `🔁 *Retry Semua*\n\n✅ ${retried} link dimasukkan ke antrian.\n_Notifikasi akan muncul saat selesai._`,
+      getBackKeyboard()
+    );
+
+    logger.info(`Retry all failed: ${retried} links re-queued`);
+  });
+
+  bot.action(/^retry_one_failed\|(\d+)$/, async ctx => {
+    const chatId = ctx.chat.id;
+    const idx = parseInt(ctx.match[1], 10);
+    await ctx.answerCbQuery('Memasukkan ke antrian...');
+
+    const items = state.stateManager.getFailedDownloads(null);
+    const item = items[idx];
+
+    if (!item) {
+      await edit(ctx)(
+        templates.failedMenu(items),
+        getFailedMenuKeyboard(items)
+      );
+      return;
+    }
+
+    state.stateManager.removeProcessedLink(item.url);
+    const targetChatId = item.chatId || chatId;
+    const folder = item.folder || state.storage.getDownloadDir();
+    const ok = state.downloadQueue.put({ url: item.url, name: item.filename, chatId: targetChatId, folder });
+
+    if (ok) {
+      state.stateManager.addProcessedLink(item.url);
+      state.stateManager.removeFailedDownload(item.url, item.chatId);
+      state.stateManager.saveState(state.storage.getDownloadDir());
+      await ctx.answerCbQuery('✅ Ditambah ke antrian!', { show_alert: false });
+    } else {
+      await ctx.answerCbQuery('⚠️ Antrian penuh, coba lagi nanti.', { show_alert: true });
+    }
+
+    const newItems = state.stateManager.getFailedDownloads(null);
+    await edit(ctx)(
+      templates.failedMenu(newItems),
+      getFailedMenuKeyboard(newItems)
+    );
+  });
+
+  bot.action(/^del_one_failed\|(\d+)$/, async ctx => {
+    const idx = parseInt(ctx.match[1], 10);
+    await ctx.answerCbQuery('Dihapus.');
+
+    const items = state.stateManager.getFailedDownloads(null);
+    const item = items[idx];
+    if (item) {
+      state.stateManager.removeFailedDownload(item.url, item.chatId);
+      state.stateManager.saveState(state.storage.getDownloadDir());
+    }
+
+    const newItems = state.stateManager.getFailedDownloads(null);
+    await edit(ctx)(
+      templates.failedMenu(newItems),
+      getFailedMenuKeyboard(newItems)
+    );
+  });
+
+  bot.action('clear_all_failed', async ctx => {
+    const count = state.stateManager.clearFailedDownloads();
+    state.stateManager.saveState(state.storage.getDownloadDir());
+    await ctx.answerCbQuery(`🗑️ ${count} entri dihapus`);
+    await edit(ctx)(
+      `✅ *Daftar Gagal Dibersihkan*\n\n${count} entri dihapus dari daftar.`,
+      getBackKeyboard()
+    );
+  });
+
   bot.action(/^dlf_use\|(.+)$/, async ctx => {
     const chatId = ctx.chat.id;
     const folder = ctx.match[1];
@@ -139,10 +245,7 @@ function registerCallbackHandlers(bot, state) {
     const pend = state.pendingLinks.get(chatId) || {};
     state.pendingLinks.set(chatId, { ...pend, waiting_custom: true, global_folder: false });
 
-    await ctx.reply(
-      '✏️ *Folder Baru*\n\nKetik nama folder yang ingin digunakan:',
-      { parse_mode: 'Markdown' }
-    );
+    await ctx.reply('✏️ *Folder Baru*\n\nKetik nama folder yang ingin digunakan:', { parse_mode: 'Markdown' });
   });
 
   bot.action(/^gf_use\|(.+)$/, async ctx => {
@@ -169,10 +272,7 @@ function registerCallbackHandlers(bot, state) {
 
     state.pendingLinks.set(chatId, { links: [], waiting_custom: true, global_folder: true });
 
-    await ctx.reply(
-      '✏️ *Folder Baru*\n\nKetik nama folder yang ingin dijadikan folder aktif:',
-      { parse_mode: 'Markdown' }
-    );
+    await ctx.reply('✏️ *Folder Baru*\n\nKetik nama folder yang ingin dijadikan folder aktif:', { parse_mode: 'Markdown' });
   });
 
   logger.debug('Callback handlers registered');
