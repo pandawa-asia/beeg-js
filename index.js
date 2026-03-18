@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 
-const { Telegraf, Markup } = require('telegraf');
+const { Telegraf } = require('telegraf');
 const logger = require('./src/utils/logger');
+const dashboard = require('./src/utils/dashboard');
 const config = require('./src/config');
 const { requireAuth } = require('./src/handlers/auth');
 const { registerCallbackHandlers } = require('./src/handlers/callbacks');
 const {
   getMainInlineKeyboard,
-  getCacheMenuKeyboard,
-  getBackKeyboard,
   buildFolderChoiceKeyboard,
   buildGlobalFolderKeyboard
 } = require('./src/handlers/keyboards');
@@ -88,6 +87,8 @@ async function workerLoop(workerId) {
       acts.push(filename);
       activeDownloads.set(chatId, acts);
 
+      dashboard.startJob(workerId, filename);
+
       const msg = await sendTelegramMessage(
         chatId,
         templates.downloadStart(filename, folder, downloadQueue.size)
@@ -95,6 +96,12 @@ async function workerLoop(workerId) {
       const messageId = msg?.message_id || null;
 
       const onProgress = async (progress) => {
+        dashboard.updateJob(workerId, {
+          pct: progress.percentage,
+          speed: progress.speed,
+          eta: progress.eta
+        });
+
         const bar = '█'.repeat(Math.floor(progress.percentage / 4)) +
                    '░'.repeat(25 - Math.floor(progress.percentage / 4));
 
@@ -120,6 +127,7 @@ async function workerLoop(workerId) {
 
       if (ok) {
         stateManager.updateStats({ success: stateManager.downloadStats.success + 1 });
+        dashboard.finishJob(workerId, { success: true, filename, info: status });
         await sendTelegramMessage(
           chatId,
           templates.downloadDone(filename, folder, status),
@@ -129,6 +137,8 @@ async function workerLoop(workerId) {
       } else {
         stateManager.updateStats({ failed: stateManager.downloadStats.failed + 1 });
         stateManager.removeProcessedLink(url);
+        stateManager.addFailedDownload({ url, filename, folder, chatId, reason: status });
+        dashboard.finishJob(workerId, { success: false, filename, info: status });
         await sendTelegramMessage(
           chatId,
           templates.downloadFailed(filename, status),
@@ -140,6 +150,7 @@ async function workerLoop(workerId) {
       stateManager.saveState(storage.getDownloadDir());
     } catch (error) {
       logger.error(`Worker-${workerId} error`, { error: error.message });
+      dashboard.finishJob(workerId, { success: false, filename: '???', info: error.message });
       await new Promise(r => setTimeout(r, 5000));
     }
   }
@@ -275,10 +286,11 @@ async function runBot() {
   };
 
   bot.start(requireAuth(async ctx => {
-    await ctx.reply(templates.home(storage.getDownloadDir(), downloadQueue.size), {
-      parse_mode: 'Markdown',
-      ...getMainInlineKeyboard()
-    });
+    const failedCount = stateManager.getFailedDownloads(null).length;
+    await ctx.reply(
+      templates.home(storage.getDownloadDir(), downloadQueue.size, failedCount),
+      { parse_mode: 'Markdown', ...getMainInlineKeyboard(failedCount) }
+    );
   }));
 
   registerCallbackHandlers(bot, state);
@@ -298,6 +310,8 @@ async function runBot() {
 
   await bot.launch();
 
+  const failedCount = stateManager.getFailedDownloads(null).length;
+
   logger.info('═'.repeat(50));
   logger.info('✅ BOT RUNNING SUCCESSFULLY!');
   logger.info('═'.repeat(50));
@@ -305,6 +319,9 @@ async function runBot() {
   logger.info(`👷 Workers: ${config.MAX_WORKERS}`);
   logger.info(`📦 Max queue: ${config.MAX_QUEUE_SIZE}`);
   logger.info(`🔐 Auth users: ${config.ALLOWED_USER_IDS.size ? [...config.ALLOWED_USER_IDS].join(', ') : 'SEMUA'}`);
+  if (failedCount > 0) {
+    logger.warn(`🔴 Ada ${failedCount} download gagal dari sesi sebelumnya`);
+  }
   logger.info('═'.repeat(50));
 }
 
