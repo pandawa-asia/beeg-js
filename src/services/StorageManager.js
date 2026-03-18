@@ -1,24 +1,34 @@
+'use strict';
+
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
 const config = require('../config');
-const { sanitizeFoldername } = require('../utils/validators');
 const { normalizeDir } = require('../utils/helpers');
 const { StorageError } = require('../errors/AppError');
 
-/**
- * Manager untuk folder dan file operations
- */
+const CLEANABLE_EXTENSIONS = new Set(['.mp4', '.mkv', '.webm', '.avi', '.mov', '.flv', '.m4v', '.ts', '.part']);
+
+function scanDirRecursive(dir, callback) {
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        scanDirRecursive(fullPath, callback);
+      } else if (entry.isFile()) {
+        callback(fullPath);
+      }
+    }
+  } catch {}
+}
+
 class StorageManager {
   constructor() {
     this.downloadDir = '';
     this.folderHistory = new Map();
   }
 
-  /**
-   * Initialize storage dengan given directory
-   * @param {string} dir - Directory path
-   */
   initialize(dir) {
     try {
       const normalized = normalizeDir(dir || config.DOWNLOAD_DIR_DEFAULT);
@@ -30,18 +40,12 @@ class StorageManager {
     }
   }
 
-  /**
-   * Apply/change download directory
-   * @param {string} newDir - New directory name
-   * @param {string|number} chatId - Chat ID for history
-   */
   applyDownloadDir(newDir, chatId = null) {
     try {
       const normalized = normalizeDir(newDir);
       fs.mkdirSync(normalized, { recursive: true });
       this.downloadDir = normalized;
 
-      // Update history
       if (chatId) {
         const key = String(chatId);
         const hist = this.folderHistory.get(key) || [];
@@ -57,57 +61,49 @@ class StorageManager {
     }
   }
 
-  /**
-   * Get folder history untuk user
-   * @param {string|number} chatId - Chat ID
-   * @returns {string[]}
-   */
   getFolderHistory(chatId) {
     return this.folderHistory.get(String(chatId)) || [];
   }
 
-  /**
-   * Cleanup old files (> X days)
-   * @param {number} days - Days threshold
-   * @returns {number} - Jumlah file yang dihapus
-   */
   cleanupOldFiles(days = config.CLEANUP_DAYS) {
-    if (!this.downloadDir) return 0;
+    const baseDir = config.BASE_DIR;
+    if (!fs.existsSync(baseDir)) return 0;
 
     const cutoff = Date.now() - days * 86400 * 1000;
     let removed = 0;
 
-    try {
-      fs.readdirSync(this.downloadDir)
-        .filter(f => f.endsWith('.mp4'))
-        .forEach(f => {
-          const fp = path.join(this.downloadDir, f);
-          try {
-            if (fs.statSync(fp).mtimeMs < cutoff) {
-              fs.unlinkSync(fp);
-              removed++;
-            }
-          } catch (error) {
-            logger.warn(`Gagal hapus file: ${f}`, { error: error.message });
-          }
-        });
-
-      if (removed > 0) {
-        logger.info(`${removed} file dihapus (>${days} hari)`);
+    scanDirRecursive(baseDir, (filepath) => {
+      const ext = path.extname(filepath).toLowerCase();
+      if (!CLEANABLE_EXTENSIONS.has(ext)) return;
+      try {
+        if (fs.statSync(filepath).mtimeMs < cutoff) {
+          fs.unlinkSync(filepath);
+          removed++;
+          logger.debug(`File lama dihapus: ${filepath}`);
+        }
+      } catch (error) {
+        logger.warn(`Gagal hapus file: ${filepath}`, { error: error.message });
       }
-      return removed;
-    } catch (error) {
-      logger.error('Cleanup old files gagal', { error: error.message });
-      return 0;
+    });
+
+    if (removed > 0) {
+      logger.info(`Cleanup: ${removed} file dihapus (>${days} hari)`);
     }
+    return removed;
   }
 
-  /**
-   * Get current download directory
-   * @returns {string}
-   */
   getDownloadDir() {
     return this.downloadDir;
+  }
+
+  getDiskUsageMb() {
+    const baseDir = config.BASE_DIR;
+    if (!fs.existsSync(baseDir)) return 0;
+    let totalBytes = 0;
+    scanDirRecursive(baseDir, (filepath) => {
+      try { totalBytes += fs.statSync(filepath).size; } catch {}
+    });
+    return totalBytes / (1024 * 1024);
   }
 }
 

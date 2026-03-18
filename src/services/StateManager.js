@@ -1,12 +1,13 @@
+'use strict';
+
 const fs = require('fs');
 const path = require('path');
 const logger = require('../utils/logger');
 const config = require('../config');
 const { StorageError } = require('../errors/AppError');
 
-/**
- * Manager untuk bot state persistence
- */
+const MAX_PROCESSED_LINKS = 2000;
+
 class StateManager {
   constructor(stateFile = config.STATE_FILE) {
     this.stateFile = stateFile;
@@ -18,12 +19,29 @@ class StateManager {
       total: 0,
       start_time: new Date()
     };
+    this._autoSaveTimer = null;
   }
 
-  /**
-   * Load state dari file
-   * @returns {string} - Download directory dari state
-   */
+  startAutoSave(intervalMs = 5 * 60 * 1000, getDownloadDir) {
+    if (this._autoSaveTimer) return;
+    this._autoSaveTimer = setInterval(() => {
+      try {
+        this.saveState(getDownloadDir());
+        logger.debug('Auto-save state berhasil');
+      } catch (err) {
+        logger.warn('Auto-save state gagal', { error: err.message });
+      }
+    }, intervalMs);
+    this._autoSaveTimer.unref();
+  }
+
+  stopAutoSave() {
+    if (this._autoSaveTimer) {
+      clearInterval(this._autoSaveTimer);
+      this._autoSaveTimer = null;
+    }
+  }
+
   loadState() {
     try {
       if (!fs.existsSync(this.stateFile)) {
@@ -32,12 +50,14 @@ class StateManager {
       }
 
       const data = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'));
-      
-      (data.processed_links || []).forEach(l => this.processedLinks.add(l));
-      
+
+      const links = data.processed_links || [];
+      const trimmed = links.slice(-MAX_PROCESSED_LINKS);
+      trimmed.forEach(l => this.processedLinks.add(l));
+
       const hist = data.folder_history || {};
       Object.entries(hist).forEach(([k, v]) => this.folderHistory.set(k, v));
-      
+
       const s = data.stats || {};
       if (s.success !== undefined) this.downloadStats.success = s.success;
       if (s.failed !== undefined) this.downloadStats.failed = s.failed;
@@ -46,7 +66,7 @@ class StateManager {
       logger.info(`State dimuat: ${this.processedLinks.size} link processed`, {
         downloadDir: data.download_dir
       });
-      
+
       return data.download_dir || '';
     } catch (error) {
       logger.error('Gagal load state file', { error: error.message });
@@ -54,11 +74,8 @@ class StateManager {
     }
   }
 
-  /**
-   * Save state ke file
-   * @throws {StorageError}
-   */
   saveState(downloadDir) {
+    const tmpFile = this.stateFile + '.tmp';
     try {
       const data = {
         processed_links: [...this.processedLinks],
@@ -71,18 +88,24 @@ class StateManager {
         }
       };
 
-      fs.writeFileSync(this.stateFile, JSON.stringify(data, null, 2));
+      fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2));
+      fs.renameSync(tmpFile, this.stateFile);
       logger.debug('State disimpan', { processedLinks: this.processedLinks.size });
     } catch (error) {
+      try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile); } catch {}
       logger.error('Gagal save state', { error: error.message });
       throw new StorageError(`Gagal menyimpan state: ${error.message}`);
     }
   }
 
-  /**
-   * Clear processed links
-   * @returns {number} - Jumlah link yang dihapus
-   */
+  _trimProcessedLinks() {
+    if (this.processedLinks.size > MAX_PROCESSED_LINKS) {
+      const arr = [...this.processedLinks];
+      const keep = arr.slice(arr.length - MAX_PROCESSED_LINKS);
+      this.processedLinks = new Set(keep);
+    }
+  }
+
   clearProcessedLinks() {
     const count = this.processedLinks.size;
     this.processedLinks.clear();
@@ -90,53 +113,30 @@ class StateManager {
     return count;
   }
 
-  /**
-   * Check apakah link sudah diproses
-   * @param {string} url - URL to check
-   * @returns {boolean}
-   */
   isProcessed(url) {
     return this.processedLinks.has(url);
   }
 
-  /**
-   * Add link ke processed set
-   * @param {string} url - URL to add
-   */
   addProcessedLink(url) {
     this.processedLinks.add(url);
+    this._trimProcessedLinks();
   }
 
-  /**
-   * Remove link dari processed set
-   * @param {string} url - URL to remove
-   */
   removeProcessedLink(url) {
     this.processedLinks.delete(url);
   }
 
-  /**
-   * Update download stats
-   * @param {Object} updates - Stats to update
-   */
   updateStats(updates) {
     Object.assign(this.downloadStats, updates);
   }
 
-  /**
-   * Get stats
-   * @returns {Object}
-   */
   getStats() {
     return {
       ...this.downloadStats,
-      uptime: (Date.now() - this.downloadStats.start_time.getTime()) / 1000
+      uptime: (Date.now() - new Date(this.downloadStats.start_time).getTime()) / 1000
     };
   }
 
-  /**
-   * Reset stats
-   */
   resetStats() {
     this.downloadStats = {
       success: 0,

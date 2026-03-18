@@ -1,3 +1,5 @@
+'use strict';
+
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -6,29 +8,25 @@ const { getReferer, getSpinner, formatDuration, getFileSizeMb } = require('../ut
 const { DownloadError } = require('../errors/AppError');
 const config = require('../config');
 
-/**
- * Service untuk handle video downloads
- */
+function tryUnlink(filepath) {
+  try { if (fs.existsSync(filepath)) fs.unlinkSync(filepath); } catch {}
+}
+
+function splitLines(buffer, chunk) {
+  const combined = buffer + chunk.toString();
+  const lines = combined.split('\n');
+  return { lines: lines.slice(0, -1), remainder: lines[lines.length - 1] };
+}
+
 class DownloadService {
-  /**
-   * Download video menggunakan yt-dlp
-   * @param {string} url - Video URL
-   * @param {string} filename - Output filename
-   * @param {string} folder - Output folder
-   * @param {number|string} chatId - Telegram chat ID
-   * @param {Function} onProgress - Progress callback
-   * @param {number} retry - Retry count
-   * @returns {Promise<Object>} - { ok, path, status }
-   */
   static downloadVideo(url, filename, folder, chatId, onProgress = null, retry = 0) {
     return new Promise((resolve) => {
       if (retry >= config.MAX_RETRIES) {
-        const error = new DownloadError('Maksimal retry tercapai', 'MAX_RETRIES_REACHED');
         logger.error('Download failed - max retries', { url, retry });
-        return resolve({ ok: false, path: null, status: error.message });
+        return resolve({ ok: false, path: null, status: 'Maksimal retry tercapai' });
       }
 
-      const delay = retry > 0 ? (2 ** retry) * 1000 : 0;
+      const delay = retry > 0 ? Math.min((2 ** retry) * 1000, 30000) : 0;
 
       setTimeout(async () => {
         const filepath = path.join(folder, filename);
@@ -36,26 +34,37 @@ class DownloadService {
         let lastStep = -1;
         let lastTg = 0;
         let spinner = 0;
+        let proc = null;
+
+        const cleanup = () => {
+          tryUnlink(filepath);
+          tryUnlink(filepath + '.part');
+        };
 
         try {
-          const command = [
-            'yt-dlp', '-4', '-f', 'best',
-            '--no-warnings', '--no-check-certificates',
+          const args = [
+            '-4',
+            '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
+            '--merge-output-format', 'mp4',
+            '--no-playlist',
+            '--no-warnings',
+            '--no-check-certificates',
+            '--socket-timeout', '30',
             '--progress-template',
             '[download] %(progress._percent_str)s at %(progress._speed_str)s ETA %(progress._eta_hms)s (frag %(progress._fragment_index)d/%(progress._fragment_count)d)',
             '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             '--add-header', `Referer:${getReferer(url)}`,
-            '--newline', '-o', filepath, url
+            '--newline',
+            '-o', filepath,
+            url
           ];
 
-          logger.debug('Starting yt-dlp process', { url, filepath, retry });
+          logger.debug('Starting yt-dlp', { url, filepath, retry });
 
-          const proc = spawn(command[0], command.slice(1), {
-            stdio: ['ignore', 'pipe', 'pipe']
-          });
+          proc = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
           const onLine = async (line) => {
-            line = line.toString().trim();
+            line = line.trim();
             if (!line.includes('[download]') || !line.includes('%')) return;
 
             const m = line.match(/(\d+(?:\.\d+)?)%/);
@@ -71,33 +80,27 @@ class DownloadService {
 
               const sm = line.match(/at\s+([\d.]+\s*\w+\/s)/);
               const speed = sm ? sm[1].trim() : '0 B/s';
-              const em = line.match(/ETA\s+(\d+:\d+|\w+)/);
+              const em = line.match(/ETA\s+(\S+)/);
               const eta = em ? em[1] : '??';
-              const bar = '█'.repeat(Math.floor(pct / 4)) + '░'.repeat(25 - Math.floor(pct / 4));
 
               if (onProgress) {
-                await onProgress({
-                  percentage: pct,
-                  speed,
-                  eta,
-                  bar,
-                  spinner: getSpinner(spinner)
-                });
+                await onProgress({ percentage: pct, speed, eta, spinner: getSpinner(spinner) });
               }
               spinner++;
             }
           };
 
-          let buffer = '';
+          let stdoutBuf = '';
           proc.stdout.on('data', chunk => {
-            buffer += chunk.toString();
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
+            const { lines, remainder } = splitLines(stdoutBuf, chunk);
+            stdoutBuf = remainder;
             lines.forEach(l => onLine(l));
           });
 
+          let stderrBuf = '';
           proc.stderr.on('data', chunk => {
-            const lines = chunk.toString().split('\n');
+            const { lines, remainder } = splitLines(stderrBuf, chunk);
+            stderrBuf = remainder;
             lines.forEach(l => onLine(l));
           });
 
@@ -105,17 +108,15 @@ class DownloadService {
             const elapsed = (Date.now() - startTime) / 1000;
 
             if (code === 0 && fs.existsSync(filepath) && fs.statSync(filepath).size > 1024) {
-              logger.info('Download berhasil', { url, filename, size: getFileSizeMb(filepath) });
+              const sizeMb = getFileSizeMb(filepath);
+              logger.info('Download berhasil', { url, filename, sizeMb: sizeMb.toFixed(2) });
               resolve({
                 ok: true,
                 path: filepath,
-                status: `✅ ${getFileSizeMb(filepath).toFixed(2)} MB • ${formatDuration(elapsed)}`
+                status: `✅ ${sizeMb.toFixed(2)} MB • ${formatDuration(elapsed)}`
               });
             } else {
-              try {
-                if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
-              } catch {}
-
+              cleanup();
               logger.warn('Download failed, retrying...', { url, code, retry });
               const next = await DownloadService.downloadVideo(url, filename, folder, chatId, onProgress, retry + 1);
               resolve(next);
@@ -123,19 +124,16 @@ class DownloadService {
           });
 
           proc.on('error', async (error) => {
-            logger.error('Process error', { error: error.message });
-            try {
-              if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
-            } catch {}
+            logger.error('Process spawn error', { error: error.message });
+            cleanup();
             const next = await DownloadService.downloadVideo(url, filename, folder, chatId, onProgress, retry + 1);
             resolve(next);
           });
 
         } catch (error) {
           logger.error('Download error', { error: error.message, retry });
-          try {
-            if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
-          } catch {}
+          cleanup();
+          if (proc) { try { proc.kill('SIGKILL'); } catch {} }
           const next = await DownloadService.downloadVideo(url, filename, folder, chatId, onProgress, retry + 1);
           resolve(next);
         }
@@ -143,17 +141,10 @@ class DownloadService {
     });
   }
 
-  /**
-   * Extract filename dari URL
-   * @param {string} url - URL
-   * @returns {string}
-   */
   static extractFilenameFromUrl(url) {
     try {
       const fn = path.basename(new URL(url).pathname);
-      if (fn.endsWith('.mp4')) {
-        return fn.toLowerCase().endsWith('.mp4') ? fn : fn + '.mp4';
-      }
+      if (fn && fn.includes('.')) return fn;
     } catch {}
     return `video_${Date.now()}.mp4`;
   }

@@ -1,12 +1,8 @@
-const config = require('../config');
+'use strict';
 
-/**
- * Message templates untuk bot responses
- */
+const { formatUptime } = require('../utils/helpers');
+
 const templates = {
-  /**
-   * Home/menu screen
-   */
   home: (downloadDir, queueSize) => {
     const folderInfo = downloadDir ? `\`${downloadDir}\`` : '_belum diset_';
     return (
@@ -18,13 +14,13 @@ const templates = {
     );
   },
 
-  /**
-   * Statistics page
-   */
   stats: (stats, downloadDir, maxWorkers, queueSize) => {
     const uptime = stats.uptime || 0;
     const total = stats.success + stats.failed;
     const rate = total ? (stats.success / total * 100) : 0;
+    const startStr = stats.start_time
+      ? new Date(stats.start_time).toLocaleString('id-ID')
+      : 'N/A';
     return (
       '📊 *STATISTIK DOWNLOAD*\n' +
       '━━━━━━━━━━━━━━━━━━━━\n\n' +
@@ -34,16 +30,12 @@ const templates = {
       `🎯 *Sukses Rate:* ${rate.toFixed(1)}%\n\n` +
       `📋 *Antrian:*     ${queueSize}\n` +
       `👷 *Workers:*     ${maxWorkers}\n` +
-      `📁 *Folder:*      \`${downloadDir || 'belum diset'}\`\n` +
-      `🔗 *Cache Links:* [lihat di /cache]\n\n` +
-      `⏱️ *Uptime:*      [${uptime}s]\n` +
-      `🕐 *Start:*       ${stats.start_time?.toLocaleString?.('id-ID') || 'N/A'}`
+      `📁 *Folder:*      \`${downloadDir || 'belum diset'}\`\n\n` +
+      `⏱️ *Uptime:*      ${formatUptime(uptime)}\n` +
+      `🕐 *Start:*       ${startStr}`
     );
   },
 
-  /**
-   * Queue status page
-   */
   queue: (queueSize, maxWorkers, maxQueueSize, activeDownloads) => {
     let text = (
       '📋 *STATUS ANTRIAN*\n' +
@@ -51,7 +43,7 @@ const templates = {
       `📦 *Total Antrian:* ${queueSize}\n` +
       `👷 *Worker Aktif:*  ${maxWorkers}\n` +
       `📊 *Kapasitas:*     ${maxQueueSize}\n` +
-      `📈 *Slot Tersisa:*  ${maxQueueSize - queueSize}\n\n`
+      `📈 *Slot Tersisa:*  ${Math.max(0, maxQueueSize - queueSize)}\n\n`
     );
 
     if (activeDownloads.length) {
@@ -60,15 +52,15 @@ const templates = {
         const s = f.length > 35 ? f.slice(0, 35) + '…' : f;
         text += `\`${i + 1}.\` \`${s}\`\n`;
       });
+      if (activeDownloads.length > 5) {
+        text += `_...dan ${activeDownloads.length - 5} lainnya_`;
+      }
     } else {
       text += '✨ _Tidak ada download aktif_';
     }
     return text;
   },
 
-  /**
-   * Help/usage guide
-   */
   help: (downloadDir, maxQueueSize, maxWorkers, maxRetries, cleanupDays) => {
     return (
       '❓ *PANDUAN PENGGUNAAN*\n' +
@@ -93,9 +85,6 @@ const templates = {
     );
   },
 
-  /**
-   * Cache management page
-   */
   cacheMenu: (cacheSize) => {
     return (
       '🗑️ *KELOLA CACHE LINK*\n' +
@@ -107,9 +96,6 @@ const templates = {
     );
   },
 
-  /**
-   * Download starting message
-   */
   downloadStart: (filename, folder, queueSize) => {
     return (
       `⏬ *Memulai download...*\n` +
@@ -119,9 +105,23 @@ const templates = {
     );
   },
 
-  /**
-   * Change folder page
-   */
+  downloadDone: (filename, folder, status) => {
+    return (
+      `✅ *Download Selesai!*\n` +
+      `📁 \`${filename}\`\n` +
+      `💾 Folder: \`${folder}\`\n` +
+      `📊 ${status}`
+    );
+  },
+
+  downloadFailed: (filename, reason) => {
+    return (
+      `❌ *Download Gagal*\n` +
+      `📁 \`${filename}\`\n` +
+      `⚠️ ${reason}`
+    );
+  },
+
   changeFolder: (currentFolder) => {
     const folderInfo = currentFolder ? `\`${currentFolder}\`` : '_belum diset_';
     return (
@@ -132,9 +132,6 @@ const templates = {
     );
   },
 
-  /**
-   * Custom folder input prompt
-   */
   customFolderPrompt: () => {
     return (
       '✏️ *Ketik nama folder baru:*\n\n' +
@@ -143,9 +140,6 @@ const templates = {
     );
   },
 
-  /**
-   * Remove link from cache prompt
-   */
   removeLinkPrompt: () => {
     return (
       '✂️ *Hapus Link Tertentu dari Cache*\n' +
