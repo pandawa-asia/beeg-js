@@ -1,0 +1,35 @@
+modules = ["nodejs-18"]
+
+[nix]
+packages = ["ffmpeg", "nano", "yt-dlp"]
+channel = "stable-25_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Telegram Video Downloader Bot"
+
+[[workflows.workflow]]
+name = "Telegram Video Downloader Bot"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm install && node index.js"
+
+[env]
+NODE_ENV = "production"
+
+[agent]
+expertMode = true
+
+[userenv]
+
+[userenv.shared]
