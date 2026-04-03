@@ -83,8 +83,9 @@ function extractTitleFromUrl(url) {
 
 // ─── HTTP Helper ──────────────────────────────────────────────────────────────
 
-function httpRequest(urlStr, opts = {}) {
+function httpRequest(urlStr, opts = {}, _redirectCount = 0) {
   return new Promise((resolve, reject) => {
+    const MAX_REDIRECTS = 8;
     const parsed = new URL(urlStr);
     const lib    = parsed.protocol === 'https:' ? https : http;
     const options = {
@@ -102,13 +103,17 @@ function httpRequest(urlStr, opts = {}) {
     };
 
     const req = lib.request(options, res => {
-      if ((res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307) && res.headers.location) {
+      const isRedirect = [301, 302, 303, 307, 308].includes(res.statusCode);
+      if (isRedirect && res.headers.location) {
         if (opts.followRedirect === false) {
           return resolve({ status: res.statusCode, location: res.headers.location, body: '' });
         }
+        if (_redirectCount >= MAX_REDIRECTS) {
+          return reject(new Error(`Too many redirects (${MAX_REDIRECTS})`));
+        }
         let loc = res.headers.location;
         if (loc.startsWith('/')) loc = `${parsed.protocol}//${parsed.hostname}${loc}`;
-        return httpRequest(loc, { ...opts, followRedirect: false })
+        return httpRequest(loc, opts, _redirectCount + 1)
           .then(resolve).catch(reject);
       }
       let body = '';

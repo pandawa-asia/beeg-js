@@ -52,8 +52,11 @@ const config = {
   // Default 3M = 3 MB/s per worker. Kosongkan ('') untuk tidak dibatasi.
   DOWNLOAD_SPEED_LIMIT: process.env.DOWNLOAD_SPEED_LIMIT || '3M',
 
-  // Jumlah fragment concurrent per download (kurangi kalau mau hemat bandwidth)
-  DOWNLOAD_CONCURRENT_FRAGMENTS: getEnvInt('DOWNLOAD_CONCURRENT_FRAGMENTS', 8),
+  // Jumlah fragment concurrent per download (kurangi kalau mau hemat RAM/bandwidth)
+  DOWNLOAD_CONCURRENT_FRAGMENTS: getEnvInt('DOWNLOAD_CONCURRENT_FRAGMENTS', 4),
+
+  // Buffer size per fragment - hemat RAM dengan nilai kecil
+  DOWNLOAD_BUFFER_SIZE: process.env.DOWNLOAD_BUFFER_SIZE || '512k',
 
   // File management
   BASE_DIR: 'Downloads',

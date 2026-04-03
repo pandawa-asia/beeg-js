@@ -54,7 +54,7 @@ class DownloadService {
             '--no-check-certificates',
             '--socket-timeout', '120',
             '--concurrent-fragments', String(config.DOWNLOAD_CONCURRENT_FRAGMENTS),
-            '--buffer-size', '2m',
+            '--buffer-size', config.DOWNLOAD_BUFFER_SIZE,
             '--fragment-retries', '5',
             '--retry-sleep', '1',
             '--progress-template',
