@@ -10,11 +10,8 @@
 # 💾  State & data bot (auto-generated)
 # ─────────────────────────────────────────────
 attached_assets/
-bot_state.json
-upload_history.json
-remote_upload_state.json
-beeg_upload_queue.json
-pending_downloads.json
+*.json
+!package.json
 
 # ─────────────────────────────────────────────
 # 📥  Folder download
@@ -25,7 +22,6 @@ Downloads/
 # 📦  Node modules
 # ─────────────────────────────────────────────
 node_modules/
-package-lock.json
 
 # ─────────────────────────────────────────────
 # 🪟  OS & editor junk
