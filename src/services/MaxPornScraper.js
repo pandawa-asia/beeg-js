@@ -134,8 +134,10 @@ function extractVideoLinksFromHtml(html) {
   const seen   = new Set();
   const videos = [];
 
-  // Match href="/videos/{id}/{slug}/"
-  const re = /href=["']\/videos\/(\d+)\/([^"'\/]+)\//g;
+  // Match baik absolute maupun relative URL:
+  // href="https://max.porn/videos/{id}/{slug}/"
+  // href="/videos/{id}/{slug}/"
+  const re = /href=["'](?:https?:\/\/max\.porn)?\/videos\/(\d+)\/([^"'\/]+)\//g;
   let m;
   while ((m = re.exec(html)) !== null) {
     const id   = m[1];
