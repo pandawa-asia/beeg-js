@@ -25,7 +25,7 @@ const templates = require('./src/messages/templates');
 const { extractLinks } = require('./src/utils/helpers');
 const { sanitizeFoldername } = require('./src/utils/validators');
 const { isBeegProfileUrl, isBeegVideoUrl: isBeegVideo, getSlugFromUrl, scrapeAllVideos, fetchBeegVideoTitle } = require('./src/services/BeegScraper');
-const { isMaxPornUrl, resolveMaxPornUrl } = require('./src/services/MaxPornScraper');
+const { isMaxPornUrl, isMaxPornChannelUrl, getChannelSlug, scrapeChannelVideos, resolveMaxPornUrl } = require('./src/services/MaxPornScraper');
 
 let botInstance = null;
 
@@ -571,11 +571,59 @@ function registerTextHandlers(bot, handleDocument) {
         return;
       }
 
-      const beegProfileLinks = links.filter(l => isBeegProfileUrl(l));
-      const normalLinks = links.filter(l => !isBeegProfileUrl(l));
+      const beegProfileLinks  = links.filter(l => isBeegProfileUrl(l));
+      const maxChannelLinks   = links.filter(l => isMaxPornChannelUrl(l));
+      const normalLinks       = links.filter(l => !isBeegProfileUrl(l) && !isMaxPornChannelUrl(l));
 
       let allLinks = [...normalLinks];
       const allNames = {};
+
+      // ── Max.porn channel scrape ──────────────────────────────────────────
+      for (const channelUrl of maxChannelLinks) {
+        const slug = getChannelSlug(channelUrl);
+        const scrapingMsg = await ctx.reply(
+          `🔍 *Mengambil semua video dari channel max.porn...*\n📺 Channel: \`${slug}\`\n⏳ Mohon tunggu...`,
+          { parse_mode: 'Markdown' }
+        );
+        const scrapingMsgId = scrapingMsg?.message_id || null;
+
+        try {
+          const scraped = await scrapeChannelVideos(channelUrl, async (found) => {
+            if (scrapingMsgId) {
+              await sendTelegramMessage(
+                chatId,
+                `🔍 *Mengambil semua video dari channel max.porn...*\n📺 Channel: \`${slug}\`\n✅ Ditemukan: *${found} video*`,
+                scrapingMsgId
+              );
+            }
+          });
+
+          for (const v of scraped) {
+            allLinks.push(v.url);
+            if (v.title) allNames[v.url] = v.title;
+          }
+
+          await sendTelegramMessage(
+            chatId,
+            `✅ *Scrape selesai!*\n📺 Channel: \`${slug}\`\n🎬 Total ditemukan: *${scraped.length} video*`,
+            scrapingMsgId
+          );
+
+          if (scraped.length === 0) {
+            await ctx.reply(
+              `⚠️ *Tidak ada video ditemukan di channel* \`${slug}\`\n\nMungkin URL-nya berbeda atau channel kosong.`,
+              { parse_mode: 'Markdown' }
+            );
+          }
+        } catch (scrapeErr) {
+          logger.error('MaxPorn channel scrape error', { error: scrapeErr.message });
+          await sendTelegramMessage(
+            chatId,
+            `❌ *Gagal scrape channel* \`${slug}\`\nError: ${scrapeErr.message}`,
+            scrapingMsgId
+          );
+        }
+      }
 
       if (beegProfileLinks.length > 0) {
         const profileUrl = beegProfileLinks[0];
