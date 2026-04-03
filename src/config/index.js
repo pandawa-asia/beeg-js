@@ -48,6 +48,13 @@ const config = {
   PROGRESS_THROTTLE_SEC: parseFloat(process.env.PROGRESS_THROTTLE || '3'),
   BYSE_UPLOAD_CONCURRENCY: getEnvInt('BYSE_UPLOAD_CONCURRENCY', 2),
 
+  // Download speed limit per worker (yt-dlp --limit-rate format: '3M', '500K', dll.)
+  // Default 3M = 3 MB/s per worker. Kosongkan ('') untuk tidak dibatasi.
+  DOWNLOAD_SPEED_LIMIT: process.env.DOWNLOAD_SPEED_LIMIT || '3M',
+
+  // Jumlah fragment concurrent per download (kurangi kalau mau hemat bandwidth)
+  DOWNLOAD_CONCURRENT_FRAGMENTS: getEnvInt('DOWNLOAD_CONCURRENT_FRAGMENTS', 8),
+
   // File management
   BASE_DIR: 'Downloads',
   DOWNLOAD_DIR_DEFAULT: '',

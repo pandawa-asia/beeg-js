@@ -147,13 +147,12 @@ function extractVideoLinksFromHtml(html) {
 }
 
 function buildPageUrl(baseUrl, page) {
-  // Try common pagination patterns:
-  // 1. ?page=N
-  // 2. /page/N/ appended to path
-  const u = new URL(baseUrl);
   if (page === 1) return baseUrl;
-  // Most sites use query params: ?page=2
-  u.searchParams.set('page', page);
+  // max.porn pagination: /channels/asiam/2/ (angka di akhir path)
+  const u = new URL(baseUrl);
+  // Hapus trailing slash lalu tambahkan /page/
+  const cleanPath = u.pathname.replace(/\/+$/, '');
+  u.pathname = `${cleanPath}/${page}/`;
   return u.toString();
 }
 
@@ -199,14 +198,20 @@ async function scrapeChannelVideos(channelUrl, onProgress) {
 
     if (onProgress) onProgress(allVideos.length);
 
-    // Cek apakah ada halaman berikutnya — cari indikator pagination
+    // Cek apakah ada halaman berikutnya
+    // max.porn pakai path: /channels/slug/2/, /channels/slug/3/, dst.
+    const nextPage   = page + 1;
+    const u          = new URL(channelUrl);
+    const cleanPath  = u.pathname.replace(/\/+$/, '');
+    const nextPath1  = `${cleanPath}/${nextPage}/`;   // /channels/asiam/2/
+    const nextPath2  = `/${nextPage}/`;               // fallback cek angka saja
+
     const hasNext = (
-      res.body.includes(`page=${page + 1}`) ||
-      res.body.includes(`/page/${page + 1}/`) ||
-      res.body.includes(`page%3D${page + 1}`) ||
-      // Cek jika ada link "next" atau ">"
-      /href=["'][^"']*[?&]page=\d+["']/i.test(res.body)
-    ) && newVideos.length >= 20; // halaman normal biasanya 20+ video
+      res.body.includes(nextPath1) ||
+      res.body.includes(nextPath2) ||
+      // fallback: kalau halaman penuh kemungkinan masih ada lanjutan
+      newVideos.length >= 20
+    );
 
     if (!hasNext) break;
 

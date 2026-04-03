@@ -53,7 +53,7 @@ class DownloadService {
             '--no-warnings',
             '--no-check-certificates',
             '--socket-timeout', '120',
-            '--concurrent-fragments', '32',
+            '--concurrent-fragments', String(config.DOWNLOAD_CONCURRENT_FRAGMENTS),
             '--buffer-size', '2m',
             '--fragment-retries', '5',
             '--retry-sleep', '1',
@@ -63,6 +63,7 @@ class DownloadService {
             '--add-header', `Referer:${getReferer(url)}`,
             '--newline',
             '-o', filepath,
+            ...(config.DOWNLOAD_SPEED_LIMIT ? ['--limit-rate', config.DOWNLOAD_SPEED_LIMIT] : []),
             url
           ];
 
