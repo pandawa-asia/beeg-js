@@ -25,6 +25,7 @@ const templates = require('./src/messages/templates');
 const { extractLinks } = require('./src/utils/helpers');
 const { sanitizeFoldername } = require('./src/utils/validators');
 const { isBeegProfileUrl, isBeegVideoUrl: isBeegVideo, getSlugFromUrl, scrapeAllVideos, fetchBeegVideoTitle } = require('./src/services/BeegScraper');
+const { isMaxPornUrl, resolveMaxPornUrl } = require('./src/services/MaxPornScraper');
 
 let botInstance = null;
 
@@ -325,7 +326,6 @@ async function workerLoop(workerId) {
       if (!resolvedName && isBeegVideo(url)) {
         resolvedName = await fetchBeegVideoTitle(url).catch(() => null);
         if (resolvedName) {
-          // Simpan ke pendingDownloadItems supaya tersimpan kalau bot restart
           const existing = pendingDownloadItems.get(url);
           if (existing) {
             existing.name = resolvedName;
@@ -335,7 +335,29 @@ async function workerLoop(workerId) {
         }
       }
 
-      const filename = resolvedName || DownloadService.extractFilenameFromUrl(url);
+      // Untuk max.porn → resolve URL direct dulu sebelum download
+      let downloadUrl = url;
+      if (isMaxPornUrl(url)) {
+        try {
+          logger.info(`[MaxPorn] Resolving URL: ${url}`);
+          const resolved = await resolveMaxPornUrl(url);
+          downloadUrl = resolved.directUrl;
+          if (!resolvedName && resolved.title) resolvedName = resolved.title;
+          logger.info(`[MaxPorn] Resolved: ${downloadUrl.slice(0, 80)}`);
+        } catch (e) {
+          logger.error(`[MaxPorn] Gagal resolve URL: ${e.message}`);
+          await sendTelegramMessage(
+            chatId,
+            `❌ *Gagal mengambil URL video dari max.porn*\n_${e.message}_\n\nCoba kirim URL langsung dari network inspector browser.`
+          );
+          pendingDownloadItems.delete(url);
+          savePendingDownloads();
+          stateManager.removeProcessedLink(url);
+          continue;
+        }
+      }
+
+      const filename = resolvedName || DownloadService.extractFilenameFromUrl(downloadUrl);
 
       const acts = activeDownloads.get(chatId) || [];
       acts.push(filename);
@@ -374,7 +396,7 @@ async function workerLoop(workerId) {
 
       const startTime = Date.now();
       const { ok, path: fp, status } = await DownloadService.downloadVideo(
-        url, filename, folder, chatId, onProgress
+        downloadUrl, filename, folder, chatId, onProgress
       );
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 

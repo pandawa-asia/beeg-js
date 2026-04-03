@@ -75,6 +75,9 @@ const config = {
     'spankbang.com': 'https://spankbang.com/',
     'eporner.com': 'https://www.eporner.com/',
     'tnaflix.com': 'https://www.tnaflix.com/',
+    'max.porn': 'https://max.porn/',
+    'privatehost.com': 'https://max.porn/',
+    'cdn.privatehost.com': 'https://max.porn/',
   },
 
   MAX_FOLDER_HISTORY: 3,

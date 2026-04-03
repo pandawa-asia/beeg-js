@@ -72,23 +72,40 @@ class DownloadService {
 
           const onLine = async (line) => {
             line = line.trim();
-            if (!line.includes('[download]') || !line.includes('%')) return;
+            if (!line.includes('[download]')) return;
 
-            const m = line.match(/(\d+(?:\.\d+)?)%/);
-            if (!m) return;
+            let pct = null;
 
-            const pct = parseFloat(m[1]);
-            const step = Math.floor(pct / 10);
+            // Coba parse persentase langsung
+            const mPct = line.match(/(\d+(?:\.\d+)?)%/);
+            if (mPct) {
+              pct = parseFloat(mPct[1]);
+            }
+
+            // Fallback: hitung dari fragment jika tidak ada %
+            if (pct === null) {
+              const mFrag = line.match(/frag\s+(\d+)\/(\d+)/);
+              if (mFrag) {
+                const cur = parseInt(mFrag[1], 10);
+                const tot = parseInt(mFrag[2], 10);
+                if (tot > 0) pct = (cur / tot) * 100;
+              }
+            }
+
+            if (pct === null) return;
+
             const now = Date.now();
 
-            if (step > lastStep && (now - lastTg) / 1000 >= config.PROGRESS_THROTTLE_SEC) {
-              lastStep = step;
+            // Gunakan time-based throttle saja (bukan step-based)
+            // supaya HLS stream yang stuck di 0% tetap update via fragment count
+            if ((now - lastTg) / 1000 >= config.PROGRESS_THROTTLE_SEC) {
               lastTg = now;
+              if (pct > lastStep * 10) lastStep = Math.floor(pct / 10);
 
-              const sm = line.match(/at\s+([\d.]+\s*\w+\/s)/);
-              const speed = sm ? sm[1].trim() : '0 B/s';
+              const sm = line.match(/at\s+([\d.]+\s*[\w]+\/s)/);
+              const speed = sm ? sm[1].trim() : '—';
               const em = line.match(/ETA\s+(\S+)/);
-              const eta = em ? em[1] : '??';
+              const eta = (em && em[1] !== 'Unknown' && em[1] !== 'NA') ? em[1] : '??';
 
               if (onProgress) {
                 await onProgress({ percentage: pct, speed, eta, spinner: getSpinner(spinner) });
