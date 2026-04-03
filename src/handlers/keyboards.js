@@ -10,6 +10,7 @@ function getMainInlineKeyboard(failedCount = 0) {
     [Markup.button.callback('📁 Ganti Folder', 'change_folder'),
      Markup.button.callback('🗑️ Kelola Cache', 'cache_menu')],
     [Markup.button.callback('☁️ Remote Upload Byse', 'remote_upload_menu')],
+    [Markup.button.callback('⚡ Kecepatan Download', 'speed_menu')],
     [Markup.button.callback('❓ Bantuan', 'help'),
      Markup.button.callback('🔄 Refresh', 'refresh_menu')],
   ];
@@ -237,6 +238,25 @@ function getLocalUploadFilesKeyboard(files, folderName) {
   return Markup.inlineKeyboard(rows);
 }
 
+function getSpeedLimitMenuKeyboard(currentLimit) {
+  const presets = [
+    { label: '1 MB/s', value: '1M' },
+    { label: '3 MB/s', value: '3M' },
+    { label: '5 MB/s', value: '5M' },
+    { label: '10 MB/s', value: '10M' },
+    { label: '🚀 Tanpa Limit', value: '' },
+  ];
+
+  const rows = presets.map(p => {
+    const active = (p.value === (currentLimit || ''));
+    const icon = active ? '✅ ' : '';
+    return [Markup.button.callback(`${icon}${p.label}`, `set_speed|${p.value}`)];
+  });
+
+  rows.push([Markup.button.callback('🔙 Menu Utama', 'menu')]);
+  return Markup.inlineKeyboard(rows);
+}
+
 function getPersistentMenuKeyboard() {
   return Markup.keyboard([
     ['🏠 Menu Utama']
@@ -245,6 +265,7 @@ function getPersistentMenuKeyboard() {
 
 module.exports = {
   getMainInlineKeyboard,
+  getSpeedLimitMenuKeyboard,
   getCacheMenuKeyboard,
   getStatsKeyboard,
   getQueueKeyboard,

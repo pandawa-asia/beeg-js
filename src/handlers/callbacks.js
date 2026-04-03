@@ -2,6 +2,7 @@
 
 const logger = require('../utils/logger');
 const templates = require('../messages/templates');
+const config = require('../config');
 const {
   getMainInlineKeyboard,
   getCacheMenuKeyboard,
@@ -10,7 +11,8 @@ const {
   getBackKeyboard,
   getFailedMenuKeyboard,
   buildGlobalFolderKeyboard,
-  buildFolderChoiceKeyboard
+  buildFolderChoiceKeyboard,
+  getSpeedLimitMenuKeyboard,
 } = require('./keyboards');
 
 function registerCallbackHandlers(bot, state) {
@@ -283,6 +285,33 @@ function registerCallbackHandlers(bot, state) {
     state.pendingLinks.set(chatId, { links: [], waiting_custom: true, global_folder: true });
 
     await ctx.reply('✏️ *Folder Baru*\n\nKetik nama folder yang ingin dijadikan folder aktif:', { parse_mode: 'Markdown' });
+  });
+
+  bot.action('speed_menu', async ctx => {
+    await ctx.answerCbQuery();
+    const cur = config.DOWNLOAD_SPEED_LIMIT || '';
+    const label = cur ? `${cur}/s per worker` : 'Tanpa Limit';
+    await edit(ctx)(
+      `⚡ *Kecepatan Download*\n\nSaat ini: *${label}*\n\n` +
+      `Pilih kecepatan maksimal per worker.\n` +
+      `_🚀 Tanpa Limit = pakai semua bandwidth yang tersedia._`,
+      getSpeedLimitMenuKeyboard(cur)
+    );
+  });
+
+  bot.action(/^set_speed\|(.*)$/, async ctx => {
+    const value = ctx.match[1];
+    config.DOWNLOAD_SPEED_LIMIT = value;
+
+    const label = value ? `${value}/s per worker` : '🚀 Tanpa Limit';
+    await ctx.answerCbQuery(`✅ Kecepatan: ${label}`, { show_alert: false });
+    await edit(ctx)(
+      `⚡ *Kecepatan Download*\n\nSaat ini: *${label}*\n\n` +
+      `Pilih kecepatan maksimal per worker.\n` +
+      `_🚀 Tanpa Limit = pakai semua bandwidth yang tersedia._`,
+      getSpeedLimitMenuKeyboard(value)
+    );
+    logger.info(`Speed limit diubah ke: ${value || 'unlimited'}`);
   });
 
   logger.debug('Callback handlers registered');
