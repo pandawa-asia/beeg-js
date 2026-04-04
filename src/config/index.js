@@ -58,6 +58,19 @@ const config = {
   // Buffer size per fragment - hemat RAM dengan nilai kecil
   DOWNLOAD_BUFFER_SIZE: process.env.DOWNLOAD_BUFFER_SIZE || '512k',
 
+  // ── Auto-upload destination setelah download selesai ──────────────────────
+  // 'none'     = hanya simpan di disk
+  // 'byse'     = upload ke Byse (butuh BYSE_API_KEY)
+  // 'telegram' = upload ke Telegram storage channel (butuh TELEGRAM_STORAGE_CHANNEL)
+  AUTO_UPLOAD_DEST: process.env.AUTO_UPLOAD_DEST || 'none',
+
+  // ID channel Telegram untuk storage (misal: -1001234567890)
+  TELEGRAM_STORAGE_CHANNEL: process.env.TELEGRAM_STORAGE_CHANNEL || '',
+
+  // URL local Bot API server (kosong = pakai api.telegram.org standar, limit 50MB)
+  // Contoh local: 'http://localhost:8081'
+  TELEGRAM_API_URL: process.env.TELEGRAM_API_URL || '',
+
   // File management
   BASE_DIR: 'Downloads',
   DOWNLOAD_DIR_DEFAULT: '',

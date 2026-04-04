@@ -28,6 +28,7 @@ const { isBeegProfileUrl, isBeegVideoUrl: isBeegVideo, getSlugFromUrl, scrapeAll
 const { isMaxPornUrl, isMaxPornChannelUrl, getChannelSlug, scrapeChannelVideos, resolveMaxPornUrl } = require('./src/services/MaxPornScraper');
 const { isTikTokProfileUrl, isTikTokVideoUrl, getProfileSlug, scrapeTikTokProfile } = require('./src/services/TikTokScraper');
 const { isInstagramProfileUrl, getProfileSlug: getIgSlug, scrapeInstagramProfile } = require('./src/services/InstagramScraper');
+const TelegramStorage = require('./src/services/TelegramStorage');
 
 let botInstance = null;
 
@@ -430,13 +431,17 @@ async function workerLoop(workerId) {
           );
         }
 
-        if (fromBeeg && fp && process.env.BYSE_API_KEY) {
+        // ── Byse upload: fromBeeg ATAU profile VPS/unlimited ─────────────────
+        const shouldByse = fp && process.env.BYSE_API_KEY &&
+          (fromBeeg || config.AUTO_UPLOAD_DEST === 'byse');
+
+        if (shouldByse) {
           let fileSize = 0;
           try { fileSize = fs.statSync(fp).size; } catch {}
 
           const uploadItem = { filepath: fp, name: filename, size: fileSize, chatId };
-          const ok = uploadQueue.put(uploadItem);
-          if (ok) {
+          const queued = uploadQueue.put(uploadItem);
+          if (queued) {
             pendingUploadItems.set(fp, uploadItem);
             saveBeegUploadQueue();
             const queuePos = uploadQueue.size;
@@ -450,6 +455,47 @@ async function workerLoop(workerId) {
             await sendTelegramMessage(
               chatId,
               `⚠️ *Antrian upload penuh*\n📹 \`${shortName}\`\n_File tidak dapat ditambahkan ke antrian upload saat ini._`
+            );
+          }
+        }
+
+        // ── Telegram Storage upload: profile PC/WSL ────────────────────────
+        if (fp && config.AUTO_UPLOAD_DEST === 'telegram' && config.TELEGRAM_STORAGE_CHANNEL) {
+          let fileSize = 0;
+          try { fileSize = fs.statSync(fp).size; } catch {}
+          const shortName = filename.length > 45 ? filename.slice(0, 45) + '…' : filename;
+          const useLocalApi = !!config.TELEGRAM_API_URL;
+
+          await sendTelegramMessage(
+            chatId,
+            `📨 *Mengupload ke Telegram channel...*\n📹 \`${shortName}\`\n💾 ${(fileSize / 1024 / 1024).toFixed(1)} MB`
+          );
+
+          try {
+            const { file_id, message_id, media_type } = await TelegramStorage.uploadToChannel(
+              botInstance, config.TELEGRAM_STORAGE_CHANNEL, fp,
+              { url, title: filename, fileSize }, useLocalApi
+            );
+
+            TelegramStorage.saveRecord({
+              url, file_id, message_id, media_type,
+              title: filename, fileSize,
+              channelId: config.TELEGRAM_STORAGE_CHANNEL,
+            });
+
+            await sendTelegramMessage(
+              chatId,
+              `✅ *Upload ke Telegram selesai!*\n📹 \`${shortName}\`\n\n` +
+              `🔑 *File ID:*\n\`${file_id}\`\n\n` +
+              `_File ID disimpan otomatis. Bisa dikirim ke user tanpa re-upload._`
+            );
+
+            logger.info('[TgStorage] Upload selesai', { filename, file_id: file_id?.slice(0, 30) });
+          } catch (uploadErr) {
+            logger.error('[TgStorage] Upload gagal', { error: uploadErr.message });
+            await sendTelegramMessage(
+              chatId,
+              `❌ *Gagal upload ke Telegram*\n📹 \`${shortName}\`\n_${uploadErr.message}_`
             );
           }
         }
@@ -877,9 +923,12 @@ async function runBot() {
     uploadWorkerLoop(i + 1);
   }
 
-  const bot = new Telegraf(config.BOT_TOKEN, {
-    telegram: { timeout: config.TIMEOUT * 1000 }
-  });
+  const botOpts = { telegram: { timeout: config.TIMEOUT * 1000 } };
+  if (config.TELEGRAM_API_URL) {
+    botOpts.telegram.apiRoot = config.TELEGRAM_API_URL;
+    logger.info(`Menggunakan custom Telegram API: ${config.TELEGRAM_API_URL}`);
+  }
+  const bot = new Telegraf(config.BOT_TOKEN, botOpts);
   botInstance = bot;
 
   const safeEdit = (ctx) => async (text, extra = {}) => {

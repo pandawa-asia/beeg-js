@@ -241,28 +241,32 @@ function getLocalUploadFilesKeyboard(files, folderName) {
 const PROFILES = {
   vps: {
     label: '🖥️ VPS / Replit',
-    desc: 'Speed 3M · 4 fragment',
+    desc: 'Speed 3M · 4 frag · ☁️ Byse',
     DOWNLOAD_SPEED_LIMIT: '3M',
     DOWNLOAD_CONCURRENT_FRAGMENTS: 4,
+    AUTO_UPLOAD_DEST: 'byse',
   },
   pc: {
     label: '💻 PC / WSL Lokal',
-    desc: 'Speed 1M · 2 fragment',
+    desc: 'Speed 1M · 2 frag · 📨 Telegram',
     DOWNLOAD_SPEED_LIMIT: '1M',
     DOWNLOAD_CONCURRENT_FRAGMENTS: 2,
+    AUTO_UPLOAD_DEST: 'telegram',
   },
   unlimited: {
     label: '🚀 Server Kencang',
-    desc: 'Tanpa limit · 8 fragment',
+    desc: 'Tanpa limit · 8 frag · ☁️ Byse',
     DOWNLOAD_SPEED_LIMIT: '',
     DOWNLOAD_CONCURRENT_FRAGMENTS: 8,
+    AUTO_UPLOAD_DEST: 'byse',
   },
 };
 
 function detectProfile(cfg) {
   for (const [key, p] of Object.entries(PROFILES)) {
     if (p.DOWNLOAD_SPEED_LIMIT === (cfg.DOWNLOAD_SPEED_LIMIT || '') &&
-        p.DOWNLOAD_CONCURRENT_FRAGMENTS === cfg.DOWNLOAD_CONCURRENT_FRAGMENTS) {
+        p.DOWNLOAD_CONCURRENT_FRAGMENTS === cfg.DOWNLOAD_CONCURRENT_FRAGMENTS &&
+        p.AUTO_UPLOAD_DEST === (cfg.AUTO_UPLOAD_DEST || 'none')) {
       return key;
     }
   }

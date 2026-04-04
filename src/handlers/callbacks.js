@@ -289,6 +289,13 @@ function registerCallbackHandlers(bot, state) {
     await ctx.reply('✏️ *Folder Baru*\n\nKetik nama folder yang ingin dijadikan folder aktif:', { parse_mode: 'Markdown' });
   });
 
+  const uploadDestLabel = () => {
+    const dest = config.AUTO_UPLOAD_DEST || 'none';
+    if (dest === 'byse')     return '☁️ Byse';
+    if (dest === 'telegram') return '📨 Telegram Channel';
+    return '💾 Disk saja';
+  };
+
   const settingsText = () => {
     const speed = config.DOWNLOAD_SPEED_LIMIT ? `${config.DOWNLOAD_SPEED_LIMIT}/s` : 'Tanpa Limit';
     const frag  = config.DOWNLOAD_CONCURRENT_FRAGMENTS;
@@ -296,7 +303,8 @@ function registerCallbackHandlers(bot, state) {
       `⚙️ *Pengaturan Download*\n\n` +
       `📡 Speed: *${speed} per worker*\n` +
       `🧩 Fragment: *${frag} concurrent*\n` +
-      `👷 Workers: *${config.MAX_WORKERS}* (ubah di .env, berlaku saat restart)\n\n` +
+      `👷 Workers: *${config.MAX_WORKERS}* (ubah di .env, berlaku saat restart)\n` +
+      `📤 Upload ke: *${uploadDestLabel()}*\n\n` +
       `Pilih profile atau atur manual:`
     );
   };
@@ -313,6 +321,7 @@ function registerCallbackHandlers(bot, state) {
 
     config.DOWNLOAD_SPEED_LIMIT           = p.DOWNLOAD_SPEED_LIMIT;
     config.DOWNLOAD_CONCURRENT_FRAGMENTS  = p.DOWNLOAD_CONCURRENT_FRAGMENTS;
+    config.AUTO_UPLOAD_DEST               = p.AUTO_UPLOAD_DEST;
 
     await ctx.answerCbQuery(`✅ ${p.label} aktif`);
     await edit(ctx)(settingsText(), getSettingsMenuKeyboard(config));
