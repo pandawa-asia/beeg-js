@@ -26,6 +26,7 @@ const { extractLinks } = require('./src/utils/helpers');
 const { sanitizeFoldername } = require('./src/utils/validators');
 const { isBeegProfileUrl, isBeegVideoUrl: isBeegVideo, getSlugFromUrl, scrapeAllVideos, fetchBeegVideoTitle } = require('./src/services/BeegScraper');
 const { isMaxPornUrl, isMaxPornChannelUrl, getChannelSlug, scrapeChannelVideos, resolveMaxPornUrl } = require('./src/services/MaxPornScraper');
+const { isTikTokProfileUrl, isTikTokVideoUrl, getProfileSlug, scrapeTikTokProfile } = require('./src/services/TikTokScraper');
 
 let botInstance = null;
 
@@ -573,7 +574,10 @@ function registerTextHandlers(bot, handleDocument) {
 
       const beegProfileLinks  = links.filter(l => isBeegProfileUrl(l));
       const maxChannelLinks   = links.filter(l => isMaxPornChannelUrl(l));
-      const normalLinks       = links.filter(l => !isBeegProfileUrl(l) && !isMaxPornChannelUrl(l));
+      const tiktokProfiles    = links.filter(l => isTikTokProfileUrl(l));
+      const normalLinks       = links.filter(l =>
+        !isBeegProfileUrl(l) && !isMaxPornChannelUrl(l) && !isTikTokProfileUrl(l)
+      );
 
       let allLinks = [...normalLinks];
       const allNames = {};
@@ -620,6 +624,53 @@ function registerTextHandlers(bot, handleDocument) {
           await sendTelegramMessage(
             chatId,
             `❌ *Gagal scrape channel* \`${slug}\`\nError: ${scrapeErr.message}`,
+            scrapingMsgId
+          );
+        }
+      }
+
+      // ── TikTok profile scrape ─────────────────────────────────────────────
+      for (const profileUrl of tiktokProfiles) {
+        const slug = getProfileSlug(profileUrl);
+        const scrapingMsg = await ctx.reply(
+          `🔍 *Mengambil semua video dari profil TikTok...*\n👤 Profil: \`@${slug}\`\n⏳ Mohon tunggu...`,
+          { parse_mode: 'Markdown' }
+        );
+        const scrapingMsgId = scrapingMsg?.message_id || null;
+
+        try {
+          const scraped = await scrapeTikTokProfile(profileUrl, async (found) => {
+            if (scrapingMsgId) {
+              await sendTelegramMessage(
+                chatId,
+                `🔍 *Mengambil semua video dari profil TikTok...*\n👤 Profil: \`@${slug}\`\n✅ Ditemukan: *${found} video*`,
+                scrapingMsgId
+              );
+            }
+          });
+
+          for (const v of scraped) {
+            allLinks.push(v.url);
+            if (v.title) allNames[v.url] = v.title;
+          }
+
+          await sendTelegramMessage(
+            chatId,
+            `✅ *Scrape selesai!*\n👤 Profil: \`@${slug}\`\n🎬 Total: *${scraped.length} video*`,
+            scrapingMsgId
+          );
+
+          if (scraped.length === 0) {
+            await ctx.reply(
+              `⚠️ *Tidak ada video ditemukan di profil* \`@${slug}\`\n\nMungkin akun privat atau URL salah.`,
+              { parse_mode: 'Markdown' }
+            );
+          }
+        } catch (scrapeErr) {
+          logger.error('TikTok profile scrape error', { error: scrapeErr.message });
+          await sendTelegramMessage(
+            chatId,
+            `❌ *Gagal scrape profil TikTok* \`@${slug}\`\nError: ${scrapeErr.message}`,
             scrapingMsgId
           );
         }
