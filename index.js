@@ -30,7 +30,8 @@ const { isTikTokProfileUrl, isTikTokVideoUrl, getProfileSlug, scrapeTikTokProfil
 const { isInstagramProfileUrl, getProfileSlug: getIgSlug, scrapeInstagramProfile } = require('./src/services/InstagramScraper');
 const TelegramStorage = require('./src/services/TelegramStorage');
 
-let botInstance = null;
+let botInstance   = null;
+let botUsername   = null;   // di-set saat bot launch
 
 // ── Telegram rate limiter ──────────────────────────────────────────────────
 // Per-chatId: catat kapan boleh kirim lagi setelah kena 429
@@ -477,17 +478,22 @@ async function workerLoop(workerId) {
               { url, title: filename, fileSize }, useLocalApi
             );
 
-            TelegramStorage.saveRecord({
+            const recordId = TelegramStorage.saveRecord({
               url, file_id, message_id, media_type,
               title: filename, fileSize,
               channelId: config.TELEGRAM_STORAGE_CHANNEL,
             });
 
+            const deepLink = botUsername
+              ? `https://t.me/${botUsername}?start=${recordId}`
+              : null;
+
             await sendTelegramMessage(
               chatId,
               `✅ *Upload ke Telegram selesai!*\n📹 \`${shortName}\`\n\n` +
               `🔑 *File ID:*\n\`${file_id}\`\n\n` +
-              `_File ID disimpan otomatis. Bisa dikirim ke user tanpa re-upload._`
+              (deepLink ? `🔗 *Deep Link:*\n${deepLink}\n\n` : '') +
+              `_Bagikan deep link ke user — mereka langsung terima file tanpa re-upload._`
             );
 
             logger.info('[TgStorage] Upload selesai', { filename, file_id: file_id?.slice(0, 30) });
@@ -961,7 +967,48 @@ async function runBot() {
     'setMyCommands'
   );
 
-  bot.start(requireAuth(async ctx => {
+  bot.start(async ctx => {
+    const payload = ctx.startPayload;
+
+    // ── Deep link delivery: /start {recordId} ────────────────────────────
+    if (payload) {
+      const record = TelegramStorage.findById(payload);
+      if (record) {
+        try {
+          const caption = record.title
+            ? `📹 *${record.title}*`
+            : '📹 Video';
+          if (record.media_type === 'video') {
+            await ctx.telegram.sendVideo(ctx.chat.id, record.file_id, {
+              caption, parse_mode: 'Markdown'
+            });
+          } else {
+            await ctx.telegram.sendDocument(ctx.chat.id, record.file_id, {
+              caption, parse_mode: 'Markdown'
+            });
+          }
+          logger.info('[DeepLink] File dikirim ke user', {
+            userId: ctx.from?.id, recordId: payload
+          });
+        } catch (e) {
+          logger.warn('[DeepLink] Gagal kirim file', { error: e.message });
+          await ctx.reply('❌ File tidak ditemukan atau sudah dihapus dari channel.');
+        }
+        return;
+      }
+
+      // Payload tidak cocok dengan record apapun
+      await ctx.reply('❌ Link tidak valid atau sudah kadaluarsa.');
+      return;
+    }
+
+    // ── Admin start (tanpa payload) ───────────────────────────────────────
+    const uid = ctx.from?.id;
+    if (config.ALLOWED_USER_IDS.size && !config.ALLOWED_USER_IDS.has(uid)) {
+      await ctx.reply('⛔ Akses ditolak.');
+      return;
+    }
+
     const failedCount = stateManager.getFailedDownloads(null).length;
     await ctx.reply(
       '👋 Halo! Tekan *🏠 Menu Utama* kapan saja untuk membuka menu.',
@@ -971,7 +1018,7 @@ async function runBot() {
       templates.home(storage.getDownloadDir(), downloadQueue.size, failedCount),
       { parse_mode: 'Markdown', ...getMainInlineKeyboard(failedCount) }
     );
-  }));
+  });
 
   bot.command('menu', requireAuth(async ctx => {
     const failedCount = stateManager.getFailedDownloads(null).length;
@@ -1016,6 +1063,13 @@ async function runBot() {
   process.once('SIGTERM', shutdown);
 
   await withRetry429(() => bot.launch(), 'bot.launch');
+  try {
+    const me = await bot.telegram.getMe();
+    botUsername = me.username;
+    logger.info(`Bot username: @${botUsername}`);
+  } catch (e) {
+    logger.warn('Gagal ambil bot username', { error: e.message });
+  }
 
   // Kirim notifikasi ke semua chatId yang punya antrian pending setelah bot siap
   const restoredDownloads = pendingDownloadItems.size;

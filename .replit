@@ -1,7 +1,7 @@
 modules = ["nodejs-18"]
 
 [nix]
-packages = ["ffmpeg", "nano", "yt-dlp", "speedtest-cli"]
+packages = ["ffmpeg", "nano", "yt-dlp", "speedtest-cli", "tree"]
 channel = "stable-25_05"
 
 [workflows]
