@@ -10,7 +10,7 @@ function getMainInlineKeyboard(failedCount = 0) {
     [Markup.button.callback('📁 Ganti Folder', 'change_folder'),
      Markup.button.callback('🗑️ Kelola Cache', 'cache_menu')],
     [Markup.button.callback('☁️ Remote Upload Byse', 'remote_upload_menu')],
-    [Markup.button.callback('⚡ Kecepatan Download', 'speed_menu')],
+    [Markup.button.callback('⚙️ Pengaturan', 'settings_menu')],
     [Markup.button.callback('❓ Bantuan', 'help'),
      Markup.button.callback('🔄 Refresh', 'refresh_menu')],
   ];
@@ -238,6 +238,59 @@ function getLocalUploadFilesKeyboard(files, folderName) {
   return Markup.inlineKeyboard(rows);
 }
 
+const PROFILES = {
+  vps: {
+    label: '🖥️ VPS / Replit',
+    desc: 'Speed 3M · 4 fragment',
+    DOWNLOAD_SPEED_LIMIT: '3M',
+    DOWNLOAD_CONCURRENT_FRAGMENTS: 4,
+  },
+  pc: {
+    label: '💻 PC / WSL Lokal',
+    desc: 'Speed 1M · 2 fragment',
+    DOWNLOAD_SPEED_LIMIT: '1M',
+    DOWNLOAD_CONCURRENT_FRAGMENTS: 2,
+  },
+  unlimited: {
+    label: '🚀 Server Kencang',
+    desc: 'Tanpa limit · 8 fragment',
+    DOWNLOAD_SPEED_LIMIT: '',
+    DOWNLOAD_CONCURRENT_FRAGMENTS: 8,
+  },
+};
+
+function detectProfile(cfg) {
+  for (const [key, p] of Object.entries(PROFILES)) {
+    if (p.DOWNLOAD_SPEED_LIMIT === (cfg.DOWNLOAD_SPEED_LIMIT || '') &&
+        p.DOWNLOAD_CONCURRENT_FRAGMENTS === cfg.DOWNLOAD_CONCURRENT_FRAGMENTS) {
+      return key;
+    }
+  }
+  return 'custom';
+}
+
+function getSettingsMenuKeyboard(cfg) {
+  const active = detectProfile(cfg);
+  const speedLabel = cfg.DOWNLOAD_SPEED_LIMIT
+    ? `${cfg.DOWNLOAD_SPEED_LIMIT}/s`
+    : 'Tanpa Limit';
+
+  const rows = Object.entries(PROFILES).map(([key, p]) => {
+    const isActive = active === key;
+    return [Markup.button.callback(
+      `${isActive ? '✅ ' : ''}${p.label}  ·  ${p.desc}`,
+      `profile|${key}`
+    )];
+  });
+
+  rows.push([Markup.button.callback(
+    `${active === 'custom' ? '✅ ' : ''}✏️ Manual  ·  ${speedLabel} · ${cfg.DOWNLOAD_CONCURRENT_FRAGMENTS} frag`,
+    'speed_menu'
+  )]);
+  rows.push([Markup.button.callback('🔙 Menu Utama', 'menu')]);
+  return Markup.inlineKeyboard(rows);
+}
+
 function getSpeedLimitMenuKeyboard(currentLimit) {
   const presets = [
     { label: '1 MB/s', value: '1M' },
@@ -253,7 +306,7 @@ function getSpeedLimitMenuKeyboard(currentLimit) {
     return [Markup.button.callback(`${icon}${p.label}`, `set_speed|${p.value}`)];
   });
 
-  rows.push([Markup.button.callback('🔙 Menu Utama', 'menu')]);
+  rows.push([Markup.button.callback('🔙 Kembali', 'settings_menu')]);
   return Markup.inlineKeyboard(rows);
 }
 
@@ -264,7 +317,9 @@ function getPersistentMenuKeyboard() {
 }
 
 module.exports = {
+  PROFILES,
   getMainInlineKeyboard,
+  getSettingsMenuKeyboard,
   getSpeedLimitMenuKeyboard,
   getCacheMenuKeyboard,
   getStatsKeyboard,
